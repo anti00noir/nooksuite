@@ -64,6 +64,46 @@ Stored documents live in the extension's own IndexedDB:
 
 This is extension-origin storage. Content scripts run in the page's origin and therefore cannot read it directly; the panel is responsible for reading files and passing them to the page.
 
+### Shared library with NookEdit
+
+The suite plan is for NookBin and NookEdit to read and write one on-disk
+library (`Documents\NookSuite` by default, user-configurable). Phase 0 tested
+whether the extension could own that folder directly with the File System
+Access API. It cannot, so the library is owned by the native app instead.
+
+Evidence is in [`docs/spikes/p0/README.md`](spikes/p0/README.md) and the
+harness in `spikes/p0/fsa-extension`:
+
+- Picking a directory works in a top-level extension page and in the toolbar
+  popup, and the handle persists in IndexedDB.
+- Permission is scoped to the **document**, not the origin: a reload drops it
+  from `granted` back to `prompt`, and a browser restart does not restore it.
+- In the panel's iframe the picker throws (`NotAllowedError`), and
+  `requestPermission()` throws `SecurityError: Not allowed to request
+  permissions in a third-party context`. The panel therefore cannot read file
+  contents or write, even with a handle that was granted elsewhere.
+
+Consequences:
+
+- The floating panel never performs file I/O. It asks the background service
+  worker, which talks to a **native messaging host** shipped with NookEdit.
+- The host process owns the library: it creates `.nooksuite/`, allocates
+  document IDs, performs atomic temp-then-rename writes, and streams bytes.
+- No permission prompts, no extra tab, and no dependency on the page context.
+- A File System Access "folder mode" is out of scope. Where the native app is
+  not installed, the export/import bridge remains the fallback.
+
+The on-disk layout the host is responsible for:
+
+```text
+<library>/
+├── .nooksuite/
+│   └── library.json        # schemaVersion, records
+└── documents/
+    └── <id>/
+        └── <original file>
+```
+
 ### File transfer
 
 Chrome extension messages do not carry a `File` or `Blob` directly, so the panel converts the selected file to a base64 string:
