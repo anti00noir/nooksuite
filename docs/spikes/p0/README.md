@@ -136,17 +136,21 @@ folder, including dot-directories, nested directories, and atomic writes?
 
 | Check | Result | Notes |
 | --- | --- | --- |
-| Folder picker | _pending_ | Needs the native dialog in a real Tauri window |
+| Folder picker | ✅ verified | Native dialog opened; the chosen folder received the library |
 | Dot-directory | ✅ verified | Rust test **and** the headless run in a WebView2 window |
 | Nested directories | ✅ verified | Same |
 | Atomic write | ✅ verified | Temp-then-rename leaves one `library.json` with the exact bytes |
 | Read-back | ✅ verified | JSON parses; `schemaVersion: 1`, `spike: true` |
 
+A manual run against `Desktop\fsa-spike-test` produced
+`.nooksuite\library.json` and `documents\spike-4420\hello.txt`, with
+`hiddenDir=true`, `nestedDirs=true`, `atomicWrite=true`, and the document
+reading back as `hello from the Tauri fs spike`.
+
 `cargo test` exercises `run_fs_spike` against a temp directory, and
 `npm run spike:headless` exercises the same command through the real Tauri IPC
-bridge in a WebView2 window (`hiddenDir=true nestedDirs=true
-atomicWrite=true`). Only the native folder picker remains unverified, because
-it needs a human to choose a folder.
+bridge in a WebView2 window. The manual run covers the one thing neither could:
+the native folder picker.
 
 ## Spike C — pdf.js performance on WebView2
 
@@ -174,12 +178,17 @@ only, 612×792).
 | --- | --- | --- | --- | --- | --- | --- |
 | Chromium 152 (in-app browser, proxy) | 100 | 4,058 ms | 14,459 ms | 144.6 ms | 6.9 | 20.0 MB |
 | **WebView2 157 (Tauri, headless)** | **100** | **87 ms** | **1,747 ms** | **17.5 ms** | **57.2** | **7.4 MB** |
+| WebView2 157 (Tauri, manual `tauri dev`) | 100 | 44 ms | 1,699 ms | 17.0 ms | 58.9 | 16.4 MB |
 
-> **Verdict: go.** First page 87 ms (limit ~150 ms), 100 pages in 1.75 s
-> (limit ~5 s), 17.5 ms per page (investigate threshold ~100 ms). The
-> headless WebView2 run matches the first Chromium proxy run almost exactly
-> (1,749 ms), which confirms that measurement was real and the later 14–34 s
-> proxy runs were occlusion throttling, not a pdf.js problem.
+> **Verdict: go.** Two independent WebView2 runs agree: first page 44–87 ms
+> (limit ~150 ms), 100 pages in 1.70–1.75 s (limit ~5 s), 17.0–17.5 ms per page
+> (investigate threshold ~100 ms). The headless run also matches the first
+> Chromium proxy run almost exactly (1,749 ms), which confirms that measurement
+> was real and the later 14–34 s proxy runs were occlusion throttling, not a
+> pdf.js problem.
+>
+> The manual `tauri dev` run reports a larger JS heap (16.4 MB vs 7.4 MB)
+> because the dev build keeps DevTools and React's development bundle loaded.
 >
 > Real usage is lighter still: the viewer virtualizes, so only the visible
 > pages render.
@@ -220,8 +229,8 @@ spike through the real IPC bridge in a WebView2 window:
 | Spike | Verdict | Date |
 | --- | --- | --- |
 | A — FSA | ❌ **no-go for in-panel I/O** — permission is per-document and cannot be escalated in a third-party iframe; fall back to a Library tab or native messaging | 2026-11-22 |
-| B — Tauri fs | 🟡 **go, one gap** — layout, atomic write, and read-back verified in-app; only the native picker is unverified | 2026-11-22 |
-| C — pdf.js | ✅ **go** — 87 ms first page, 1.75 s for 100 pages, 17.5 ms/page in WebView2 | 2026-11-22 |
+| B — Tauri fs | ✅ **go** — picker, dot-directory, nested directories, atomic write, and read-back all verified in the app | 2026-11-22 |
+| C — pdf.js | ✅ **go** — 44–87 ms first page, 1.70–1.75 s for 100 pages, ~17 ms/page in WebView2 | 2026-11-22 |
 
 ## Reproducing
 
