@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "NookSuite P0 — FSA spike",
+  "version": "0.0.0",
+  "description": "Spike harness: File System Access API behavior in extension pages, popups, and embedded iframes.",
+  "minimum_chrome_version": "114",
+  "permissions": ["scripting", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_title": "Open FSA spike",
+    "default_popup": "popup.html"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["iframe.html", "spike.js", "spike.css"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

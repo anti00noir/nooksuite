@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NookSuite FSA spike — popup</title>
+  <link rel="stylesheet" href="spike.css" />
+</head>
+<body>
+  <main class="spike is-popup">
+    <div class="popup-bar">
+      <button type="button" id="open-page">Open full-page test</button>
+      <button type="button" id="inject-frame">Inject iframe test</button>
+    </div>
+
+    <header>
+      <h1>NookSuite FSA spike</h1>
+      <p class="subtitle" id="context"></p>
+      <p class="support" id="support"></p>
+    </header>
+
+    <p class="status" id="status">Idle.</p>
+    <div class="actions" id="actions"></div>
+    <section class="log" id="log" aria-live="polite"></section>
+  </main>
+
+  <script src="spike.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

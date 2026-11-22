@@ -1,0 +1,140 @@
+:root {
+  color-scheme: dark;
+  --bg: #161616;
+  --panel: #1e1e1e;
+  --border: #333;
+  --text: #e6e6e6;
+  --muted: #9a9a9a;
+  --accent: #7cc4ff;
+  --ok: #79d99b;
+  --warn: #f0c674;
+  --bad: #ff8a8a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 "Segoe UI", system-ui, sans-serif;
+}
+
+.spike {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 100vh;
+  padding: 14px;
+}
+
+.spike.is-popup {
+  width: 420px;
+  min-height: 0;
+  max-height: 600px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.subtitle,
+.support {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  word-break: break-word;
+}
+
+.popup-bar {
+  display: flex;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.status {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.status[data-tone="ok"] {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.status[data-tone="warn"] {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.status[data-tone="bad"] {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+button {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #2a2a2a;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button[data-tone="danger"]:hover {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.log {
+  flex: 1;
+  min-height: 160px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #111;
+  font: 11px/1.5 "Cascadia Mono", Consolas, monospace;
+}
+
+.log-line {
+  padding: 2px 0;
+  border-bottom: 1px solid #1c1c1c;
+  word-break: break-word;
+}
+
+.log-time {
+  margin-right: 8px;
+  color: #666;
+}
+
+.log-detail {
+  margin: 4px 0 2px;
+  padding: 6px;
+  overflow: auto;
+  border-radius: 4px;
+  background: #191919;
+  color: #b9b9b9;
+  white-space: pre-wrap;
+}
