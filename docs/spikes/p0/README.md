@@ -62,16 +62,38 @@ strict site CSP may block `chrome-extension:` frames independently.
 
 | # | Result | Notes |
 | --- | --- | --- |
-| A1 | _pending_ | |
-| A2 | _pending_ | |
-| A3 | _pending_ | |
-| A4 | _pending_ | |
-| A5 | _pending_ | |
-| A6 | _pending_ | |
-| A7 | _pending_ | |
-| A8 | _pending_ | |
+| A1 | _not tested_ | Popup path skipped |
+| A2 | ✅ pass | `Picked "fsa-spike-test"`, permission `granted`, handle saved |
+| A3 | ✅ pass | After reload the handle loads, but permission is back to `prompt` |
+| A4 | ✅ blocked, as predicted | `NotAllowedError: Third party iframes are not allowed to show a file picker` |
+| A5 | ✅ pass | Handle loads inside the iframe (same extension origin) |
+| A6 | ✅ blocked, as predicted | `SecurityError: Not allowed to request permissions in a third-party context` |
+| A7 | ❌ blocked | Write test stops at the permission gate; state never leaves `prompt` |
+| A8 | _pending_ | Restart test not run yet |
 
-### Decision rule
+### What this means
+
+The grant is **per document, not per origin**. A2 grants `readwrite`, but a
+reload of the same top-level page reports `prompt` again (A3). The iframe
+never sees `granted` (A5) and cannot escalate, because `requestPermission()`
+is rejected in a third-party context (A6). So A7 cannot pass: the panel can
+read the handle but can never write with it.
+
+That kills the "pick once at top level, reuse forever in the panel" design:
+
+- The **in-page panel cannot perform FSA I/O at all** — not reads of file
+  contents (permission is `prompt`), and certainly not writes.
+- A top-level **Library tab** can do the I/O, but needs a user-gesture grant
+  after every reload (A3), so it is "one click per session", not "once ever".
+  The panel would have to message that tab through the background worker.
+- Native messaging, or letting the native app own the library, avoids the
+  permission model entirely.
+
+Note: Chromium reported `NotAllowedError` for the iframe picker, not the
+`SecurityError` the earlier NookBin test produced. Both mean "blocked"; the
+error type is not a stable signal.
+
+### Decision rule (as written before the run)
 
 - **Go (live FSA folder mode)** if A2/A3 pass and A5 + A7 work after a top-level
   grant. Phase 5 then needs a top-level "Library setup" page plus a
@@ -173,7 +195,7 @@ only, 612×792).
 
 | Spike | Verdict | Date |
 | --- | --- | --- |
-| A — FSA | _pending_ — harness ready, needs a manual Edge run | |
+| A — FSA | ❌ **no-go for in-panel I/O** — permission is per-document and cannot be escalated in a third-party iframe; fall back to a Library tab or native messaging | 2026-11-22 |
 | B — Tauri fs | _partial_ — file layout/write semantics verified by test; picker pending | |
 | C — pdf.js | _inconclusive in proxy; WebView2 pending_ | |
 
