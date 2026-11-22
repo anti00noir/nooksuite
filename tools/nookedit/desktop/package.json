@@ -1,0 +1,32 @@
+{
+  "name": "@nooksuite/nookedit-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "NookEdit native app (Tauri 2) — P0 spike harness.",
+  "scripts": {
+    "predev:web": "node scripts/generate-fixture.mjs",
+    "dev:web": "vite",
+    "prebuild": "node scripts/generate-fixture.mjs",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "spike:fixture": "node scripts/generate-fixture.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.5",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
+    "pdfjs-dist": "^6.5.438",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "pdf-lib": "^1.17.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  }
+}

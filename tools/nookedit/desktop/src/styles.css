@@ -1,0 +1,115 @@
+:root {
+  color-scheme: dark;
+  --bg: #131313;
+  --panel: #1c1c1c;
+  --border: #2f2f2f;
+  --text: #e8e8e8;
+  --muted: #9a9a9a;
+  --accent: #7cc4ff;
+  --bad: #ff8a8a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+}
+
+code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: #262626;
+  font: 12px "Cascadia Mono", Consolas, monospace;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 28px 20px 48px;
+}
+
+.app-header h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+}
+
+.app-header p,
+.app-footer p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.card {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.card h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+.card p {
+  margin: 0 0 12px;
+  color: var(--muted);
+}
+
+button {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #2a2a2a;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.error {
+  margin: 12px 0 0 !important;
+  color: var(--bad) !important;
+}
+
+.report {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 16px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.report dt {
+  color: var(--muted);
+}
+
+.report dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.app-footer {
+  padding-top: 4px;
+  font-size: 12px;
+}
