@@ -27,9 +27,16 @@ npm install                 # from the repo root
 npm run spike:fixture       # generate public/fixtures/100-pages.pdf
 npm run dev:web             # browser-only harness (Vite)
 npm run tauri dev           # real Tauri window (needs Rust + MSVC)
+npm run tauri build         # release build, embeds dist into the exe
+npm run spike:headless      # run both spikes in WebView2, write JSON, exit
 ```
 
 `predev:web` and `prebuild` regenerate the PDF fixture automatically.
+
+`spike:headless` is how the benchmark is measured without clicking: the app
+reads `NOOKEDIT_HEADLESS_REPORT` on launch, renders the PDF, optionally runs
+the filesystem spike against `NOOKEDIT_HEADLESS_FS_ROOT`, writes a JSON report,
+and exits. It needs a build first (`npm run tauri build`).
 
 The `dev:web` name is deliberate: the root `npm run dev` runs every workspace's
 `dev` script in watch mode, and a long-running Vite server there would block it.

@@ -75,11 +75,45 @@ fn run_fs_spike(root: String) -> Result<FsSpikeReport, String> {
     })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HeadlessConfig {
+    report_path: String,
+    fs_root: Option<String>,
+}
+
+/// Set NOOKEDIT_HEADLESS_REPORT to run the spikes on launch, write the results
+/// to that path, and exit. Used by scripts/run-headless.mjs so the benchmark
+/// can run in WebView2 without a human clicking.
+#[tauri::command]
+fn headless_config() -> Option<HeadlessConfig> {
+    let report_path = std::env::var("NOOKEDIT_HEADLESS_REPORT").ok()?;
+    Some(HeadlessConfig {
+        report_path,
+        fs_root: std::env::var("NOOKEDIT_HEADLESS_FS_ROOT").ok(),
+    })
+}
+
+#[tauri::command]
+fn save_report(path: String, body: String) -> Result<(), String> {
+    fs::write(&path, body).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![run_fs_spike])
+        .invoke_handler(tauri::generate_handler![
+            run_fs_spike,
+            headless_config,
+            save_report,
+            quit_app
+        ])
         .run(tauri::generate_context!())
         .expect("error while running the NookEdit spike app");
 }

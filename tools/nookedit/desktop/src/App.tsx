@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { runPdfBenchmark, type PdfBenchmarkResult } from './pdf-benchmark';
@@ -13,9 +13,42 @@ type FsSpikeReport = {
   nestedDirs: boolean;
 };
 
+type HeadlessConfig = {
+  reportPath: string;
+  fsRoot: string | null;
+};
+
 function describeError(error: unknown) {
   if (error instanceof Error) return `${error.name}: ${error.message}`;
   return String(error);
+}
+
+// Module scope so a StrictMode double-mount cannot start two benchmark runs.
+let headlessStarted = false;
+
+async function runHeadless(config: HeadlessConfig) {
+  const report: Record<string, unknown> = {
+    startedAt: new Date().toISOString(),
+    userAgent: navigator.userAgent,
+  };
+
+  try {
+    report.pdf = await runPdfBenchmark('/fixtures/100-pages.pdf');
+  } catch (error) {
+    report.pdfError = describeError(error);
+  }
+
+  if (config.fsRoot) {
+    try {
+      report.fs = await invoke<FsSpikeReport>('run_fs_spike', { root: config.fsRoot });
+    } catch (error) {
+      report.fsError = describeError(error);
+    }
+  }
+
+  report.finishedAt = new Date().toISOString();
+  await invoke('save_report', { path: config.reportPath, body: JSON.stringify(report, null, 2) });
+  await invoke('quit_app');
 }
 
 export default function App() {
@@ -26,6 +59,20 @@ export default function App() {
   const [pdfResult, setPdfResult] = useState<PdfBenchmarkResult | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [pdfBusy, setPdfBusy] = useState(false);
+
+  useEffect(() => {
+    if (headlessStarted) return;
+    headlessStarted = true;
+
+    invoke<HeadlessConfig | null>('headless_config')
+      .then((config) => {
+        if (config) return runHeadless(config);
+        return undefined;
+      })
+      .catch((error) => {
+        console.error('Headless run failed', error);
+      });
+  }, []);
 
   async function runFsSpike() {
     setFsBusy(true);

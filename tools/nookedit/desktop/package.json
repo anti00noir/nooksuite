@@ -11,7 +11,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "spike:fixture": "node scripts/generate-fixture.mjs"
+    "spike:fixture": "node scripts/generate-fixture.mjs",
+    "spike:headless": "node scripts/run-headless.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.5",
