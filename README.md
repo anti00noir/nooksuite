@@ -27,6 +27,16 @@ Because the panel is rendered inside the page rather than as Chrome's native act
 
 On pages where Chrome does not allow content scripts (for example `chrome://` pages, the Chrome Web Store, or the PDF viewer), NookBin opens a movable standalone popup window instead.
 
+**NookEdit** (`tools/nookedit`) — a native document editor (Tauri 2 + React) for
+opening, editing, and exporting documents from the same on-disk library NookBin
+uses. Planned formats are PDF, plain text, and Markdown; PDF scope is view,
+page operations, and annotations/forms rather than text reflow.
+
+NookEdit is at **Phase 0**: only feasibility spikes exist. See
+[`docs/spikes/p0/README.md`](docs/spikes/p0/README.md) for the go/no-go checks
+(File System Access API in extension contexts, Tauri filesystem writes, and
+pdf.js performance in WebView2) and their current results.
+
 See [`docs/architecture.md`](docs/architecture.md) for detailed architecture notes.
 
 ## Repository layout
@@ -35,7 +45,11 @@ See [`docs/architecture.md`](docs/architecture.md) for detailed architecture not
 nooksuite/
 ├── package.json                      # Root: npm workspaces, shared scripts
 ├── docs/
-│   └── architecture.md               # Suite-wide architecture notes
+│   ├── architecture.md               # Suite-wide architecture notes
+│   └── spikes/                       # Phase 0 feasibility findings
+├── spikes/
+│   └── p0/
+│       └── fsa-extension/            # Throwaway MV3 extension: FSA context matrix
 ├── packages/
 │   └── core/                         # @nooksuite/core (target-agnostic)
 │       ├── src/
@@ -63,7 +77,8 @@ nooksuite/
     │   │   ├── build.mjs             # esbuild: bundles into dist/
     │   │   └── dist/                 # Build output (Chrome loads this)
     │   └── desktop/                  # Reserved for a future native port
-    ├── nookedit/                     # Future tool
+    ├── nookedit/                     # Native document editor (Tauri 2 + React)
+    │   └── desktop/                  # P0 spike harness; real app lands in Phase 2
     └── nooknotes/                    # Future tool
 ```
 
@@ -89,6 +104,17 @@ entry and a rebuild.
 There are no runtime dependencies; the extension ships only its own code and
 bundled `@nooksuite/core` logic. `esbuild` is the only build tool, and unit
 tests use Node's built-in test runner with `fake-indexeddb`.
+
+The NookEdit desktop workspace is the one exception: it is a Tauri app with its
+own React/Vite toolchain, and it builds through the same root scripts. Running
+it needs Node, Rust, and the MSVC C++ Build Tools:
+
+```bash
+npm run tauri dev --workspace @nooksuite/nookedit-desktop
+```
+
+Its `dev:web` script (browser-only harness) is deliberately not named `dev`, so
+the root `npm run dev` watch build is not blocked by a long-running dev server.
 
 Adding a new tool means adding `tools/<name>/extension/` with its own manifest
 and build script — no changes are needed at the suite level.
