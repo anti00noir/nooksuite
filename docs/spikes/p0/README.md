@@ -10,13 +10,12 @@ produces no production code; the harnesses here are throwaway.
 | Node.js | ✅ v26.13.1 LTS at `%LOCALAPPDATA%\nodejs` (per-user, no admin) |
 | npm | ✅ 11.20.0 |
 | Rust / Cargo | ✅ 1.100.0 stable-x86_64-pc-windows-msvc at `%USERPROFILE%\.cargo\bin` |
-| MSVC C++ Build Tools | 🔄 installing (Visual Studio Build Tools 2022, `VCTools` workload) |
+| MSVC C++ Build Tools | ✅ 17.14.45, toolset 14.44.35207, Windows SDK 10.0.26100.0 |
 | WebView2 runtime | ✅ 157.0.4341.60 |
 | Edge | ✅ installed (use for the FSA extension test) |
 | Chrome | ❌ not installed |
 
-> The Tauri spike cannot run until Rust and MSVC Build Tools are installed.
-> Node and Rustup install per-user; MSVC Build Tools needs admin (UAC).
+> Spikes B and C are now runnable. Spike A still needs a manual extension load.
 
 ## Spike A — File System Access API in extension contexts
 
@@ -109,11 +108,15 @@ folder, including dot-directories, nested directories, and atomic writes?
 
 | Check | Result | Notes |
 | --- | --- | --- |
-| Folder picker | _pending_ | |
-| Dot-directory | _pending_ | |
-| Nested directories | _pending_ | |
-| Atomic write | _pending_ | |
-| Read-back | _pending_ | |
+| Folder picker | _pending_ | Needs the native dialog in a real Tauri window |
+| Dot-directory | ✅ Rust test | `.nooksuite/` created and asserted |
+| Nested directories | ✅ Rust test | `documents/<id>/` created and asserted |
+| Atomic write | ✅ Rust test | Temp-then-rename leaves one `library.json` with the exact bytes |
+| Read-back | ✅ Rust test | JSON parses; `schemaVersion: 1`, `spike: true` |
+
+`cargo test` exercises `run_fs_spike` against a temp directory, so the file
+layout and write semantics are verified. What the tests cannot cover is the
+native folder picker and any Defender/antivirus prompts on a real folder.
 
 ## Spike C — pdf.js performance on WebView2
 
@@ -160,13 +163,18 @@ only, 612×792).
 - FSA spike scripts pass `node --check`; manifest and Tauri configs parse as
   JSON.
 - The pdf.js benchmark completes with no console errors in Chromium.
+- `cargo test` (Rust 1.100.0 + MSVC 14.44): 2/2 pass — the filesystem spike
+  creates `.nooksuite/`, `documents/<id>/`, and a byte-identical `library.json`,
+  and rejects a missing directory.
+- `npm run tauri icon` generates the Windows resource icon from
+  `scripts/icon.svg`.
 
 ## Go/no-go summary
 
 | Spike | Verdict | Date |
 | --- | --- | --- |
-| A — FSA | _pending_ | |
-| B — Tauri fs | _pending_ | |
+| A — FSA | _pending_ — harness ready, needs a manual Edge run | |
+| B — Tauri fs | _partial_ — file layout/write semantics verified by test; picker pending | |
 | C — pdf.js | _inconclusive in proxy; WebView2 pending_ | |
 
 ## Reproducing
