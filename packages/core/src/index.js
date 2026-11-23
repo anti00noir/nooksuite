@@ -11,18 +11,25 @@ export {
   clampPosition,
 } from './panel-position.js';
 
-import { createFileStorage } from './file-storage.js';
-import { openIdbFileStorage } from './backends/idb-file-storage.js';
+import { createRecordStorage } from './record-storage.js';
+import { openIdbRecordStorage } from './backends/idb-record-storage.js';
 
 export * from './panel-position.js';
-export { createFileStorage };
-export { openIdbFileStorage };
+
+export { createRecordStorage };
+export { openIdbRecordStorage };
+
+export * from './library/ids.js';
+export * from './library/record.js';
+export * from './library/library-file.js';
+export * from './library/migration.js';
 
 /**
- * Open a file store backed by IndexedDB, with the shared validation applied.
+ * Open a record store backed by IndexedDB. Records have stable ids, so
+ * duplicate names are kept side by side.
  *
  * @param {{ name?: string }} [options]
  */
-export async function getFileStorage(options) {
-  return createFileStorage(await openIdbFileStorage(options));
+export async function getRecordStorage(options) {
+  return createRecordStorage(await openIdbRecordStorage(options));
 }
