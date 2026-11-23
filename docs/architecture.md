@@ -44,23 +44,32 @@ The panel's iframe is web-accessible so it can be loaded from a content script. 
 
 ### Storage model
 
-Storage is split into an interface and a backend in `@nooksuite/core` so future
-targets (such as a native port) can swap the backend without changing callers:
+Documents are **records**, not names. A record carries a stable id, a
+normalized display name, a media type, a size, timestamps, and the path of its
+bytes. The format is shared by NookEdit and NookBin and is specified in
+[`docs/library-format.md`](library-format.md).
 
-- `file-storage.js` exposes `createFileStorage(backend)`, which validates keys
-  (non-empty strings) and values (`Blob`/`File`) and delegates persistence to
-  the backend.
-- `backends/idb-file-storage.js` implements the backend with IndexedDB. Files
-  are keyed by name in a single object store, so adding a file with an existing
-  name replaces the previous entry.
+Storage is split into an interface and a backend in `@nooksuite/core` so the
+native library and the extension can share callers:
+
+- `record-storage.js` exposes `createRecordStorage(backend)`, which owns the
+  rules every target shares: name normalization, unique names, id creation,
+  timestamps, and validation.
+- `backends/idb-record-storage.js` implements the backend with IndexedDB.
+  Records and bytes live in separate object stores, so listing a library never
+  reads file contents.
 
 Stored documents live in the extension's own IndexedDB:
 
 - Database: `my-files`
-- Database version: `1`
-- Object store: `files`
-- Key: file name
-- Value: the stored `File` / `Blob`
+- Database version: `2`
+- `records` — keyPath `id`
+- `blobs` — keyed by id
+- `meta` — migration bookkeeping
+
+Version 1 of the database keyed files by name in a single `files` store.
+Version 2 migrates those entries into records on first open; the migration is
+described in [`docs/library-format.md`](library-format.md#migrating-from-version-1).
 
 This is extension-origin storage. Content scripts run in the page's origin and therefore cannot read it directly; the panel is responsible for reading files and passing them to the page.
 
@@ -191,7 +200,6 @@ This is a proof of concept, so the following are intentionally simple:
 - Iframes, shadow DOM, and custom canvas-based upload widgets are not specifically handled.
 - The upload-area fallback is a heuristic and may not work on every site.
 - Synthetic events may be ignored by pages that require trusted user input.
-- Files are keyed by name, so duplicate names overwrite.
 - Files over 32 MB cannot currently be injected.
 - Chrome blocks extensions on pages such as `chrome://`, the Chrome Web Store, and the PDF viewer. Those pages use the standalone fallback window instead.
 - The in-page panel closes when the page navigates; reopen it from the toolbar or shortcut.
