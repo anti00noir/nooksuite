@@ -1,4 +1,4 @@
-import { getFileStorage } from '@nooksuite/core';
+import { getRecordStorage } from '@nooksuite/core';
 
 const STORE_NAME = 'my-files';
 const IDLE_STATUS = 'Local only';
@@ -115,17 +115,17 @@ function getExtension(name) {
     : '';
 }
 
-function isPdfFile(name, blob) {
-  return blob.type === 'application/pdf' || getExtension(name) === 'pdf';
+function isPdfFile(record) {
+  return record.mediaType === 'application/pdf' || getExtension(record.name) === 'pdf';
 }
 
-function isImageFile(name, blob) {
-  return blob.type.startsWith('image/') || IMAGE_EXTENSIONS.has(getExtension(name));
+function isImageFile(record) {
+  return record.mediaType.startsWith('image/') || IMAGE_EXTENSIONS.has(getExtension(record.name));
 }
 
 async function init() {
   try {
-    store = await getFileStorage({ name: STORE_NAME });
+    store = await getRecordStorage({ name: STORE_NAME });
     await refreshList();
   } catch (error) {
     setStatus(`Could not open file storage: ${error.message}`, 'error');
@@ -145,7 +145,7 @@ async function addFiles(fileListLike) {
 
   for (const file of files) {
     try {
-      await store.put(file.name, file);
+      await store.put(file);
       stored += 1;
     } catch (error) {
       errors.push(`${file.name}: ${error.message}`);
@@ -171,18 +171,7 @@ async function refreshList() {
   if (!store) return;
 
   try {
-    const names = await store.list();
-    const loaded = await Promise.all(
-      names.map(async (name) => {
-        try {
-          return { name, blob: await store.get(name) };
-        } catch {
-          return { name, blob: null };
-        }
-      }),
-    );
-
-    entries = loaded.filter(({ blob }) => blob instanceof Blob);
+    entries = await store.list();
 
     if (entries.length === 0) {
       searchQuery = '';
@@ -228,7 +217,7 @@ function renderList() {
 }
 
 function updateCounts() {
-  const totalSize = entries.reduce((sum, { blob }) => sum + blob.size, 0);
+  const totalSize = entries.reduce((sum, record) => sum + record.size, 0);
   const count = entries.length;
 
   fileCount.textContent = String(count).padStart(2, '0');
@@ -241,16 +230,17 @@ function updateCounts() {
 
 function getVisibleEntries() {
   const query = searchQuery.trim().toLocaleLowerCase();
-  const visible = entries.filter(({ name, blob }) => {
+  const visible = entries.filter((record) => {
+    const name = record.name;
     if (query && !name.toLocaleLowerCase().includes(query)) return false;
-    if (filterMode === 'pdf') return isPdfFile(name, blob);
-    if (filterMode === 'images') return isImageFile(name, blob);
+    if (filterMode === 'pdf') return isPdfFile(record);
+    if (filterMode === 'images') return isImageFile(record);
     return true;
   });
 
   visible.sort((a, b) => {
     if (sortMode === 'size') {
-      const sizeDifference = b.blob.size - a.blob.size;
+      const sizeDifference = b.size - a.size;
       if (sizeDifference !== 0) return sizeDifference;
     }
 
@@ -269,7 +259,8 @@ function createIcon(name) {
   return svg;
 }
 
-function createFileRow({ name, blob }) {
+function createFileRow(record) {
+  const name = record.name;
   const li = document.createElement('li');
   li.className = 'file-row';
 
@@ -279,7 +270,7 @@ function createFileRow({ name, blob }) {
 
   const formatLabel = document.createElement('span');
   formatLabel.className = 'format-label';
-  formatLabel.textContent = getFileBadge(name, blob);
+  formatLabel.textContent = getFileBadge(record);
   format.appendChild(formatLabel);
 
   const details = document.createElement('div');
@@ -292,7 +283,7 @@ function createFileRow({ name, blob }) {
 
   const meta = document.createElement('span');
   meta.className = 'file-meta';
-  meta.textContent = formatSize(blob.size);
+  meta.textContent = formatSize(record.size);
 
   details.append(nameSpan, meta);
 
@@ -306,7 +297,7 @@ function createFileRow({ name, blob }) {
   useBtn.setAttribute('aria-label', `Send ${name} to the current page`);
   useBtn.appendChild(createIcon('send'));
   useBtn.addEventListener('click', () => {
-    void useFile(name, useBtn);
+    void useFile(record, useBtn);
   });
 
   const delBtn = document.createElement('button');
@@ -316,7 +307,7 @@ function createFileRow({ name, blob }) {
   delBtn.setAttribute('aria-label', `Delete ${name}`);
   delBtn.appendChild(createIcon('trash'));
   delBtn.addEventListener('click', () => {
-    void deleteFile(name, delBtn);
+    void deleteFile(record, delBtn);
   });
 
   actions.append(useBtn, delBtn);
@@ -324,16 +315,16 @@ function createFileRow({ name, blob }) {
   return li;
 }
 
-function getFileBadge(name, blob) {
-  const extension = getExtension(name);
+function getFileBadge(record) {
+  const extension = getExtension(record.name);
   if (extension) {
     if (EXTENSION_BADGES[extension]) return EXTENSION_BADGES[extension];
     if (extension.length <= 4) return extension.toLocaleUpperCase();
   }
 
-  if (blob.type.startsWith('image/')) return 'IMG';
-  if (blob.type === 'application/pdf') return 'PDF';
-  if (blob.type.startsWith('text/')) return 'TXT';
+  if (record.mediaType.startsWith('image/')) return 'IMG';
+  if (record.mediaType === 'application/pdf') return 'PDF';
+  if (record.mediaType.startsWith('text/')) return 'TXT';
   return 'FILE';
 }
 
@@ -347,22 +338,22 @@ function setFilter(nextFilter) {
   }
 }
 
-async function deleteFile(name, button) {
+async function deleteFile(record, button) {
   if (!store) return;
 
   button.disabled = true;
 
   try {
-    await store.remove(name);
-    setStatus(`Removed "${name}".`, 'success');
+    await store.remove(record.id);
+    setStatus(`Removed "${record.name}".`, 'success');
     await refreshList();
   } catch (error) {
-    setStatus(`Could not remove "${name}": ${error.message}`, 'error');
+    setStatus(`Could not remove "${record.name}": ${error.message}`, 'error');
     button.disabled = false;
   }
 }
 
-async function useFile(name, button) {
+async function useFile(record, button) {
   if (!store) return;
 
   if (button) {
@@ -373,7 +364,7 @@ async function useFile(name, button) {
   setStatus('Sending file to the page...');
 
   try {
-    const blob = await store.get(name);
+    const blob = await store.get(record.id);
     if (!blob) throw new Error('That file is no longer in storage.');
 
     if (blob.size > MAX_INJECT_BYTES) {
@@ -390,8 +381,8 @@ async function useFile(name, button) {
     const data = await fileToBase64(blob);
     const response = await sendToTab(tab.id, {
       action: 'dropFile',
-      fileName: name,
-      fileType: blob.type,
+      fileName: record.name,
+      fileType: record.mediaType || blob.type,
       data,
     });
 
