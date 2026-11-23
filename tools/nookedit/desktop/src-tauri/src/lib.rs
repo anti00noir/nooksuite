@@ -1,7 +1,7 @@
 mod library;
 mod settings;
 
-use library::{ImportOutcome, Library, LibrarySnapshot};
+use library::{ImportOutcome, Library, LibrarySnapshot, Record};
 use serde::Serialize;
 use settings::Settings;
 use std::fs;
@@ -13,6 +13,7 @@ use tauri::Manager;
 struct HeadlessConfig {
     report_path: String,
     library_root: Option<String>,
+    pdf_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -26,6 +27,10 @@ struct HeadlessLibraryReport {
     record_count: usize,
     reopened_count: usize,
     persisted: bool,
+    saved_size: u64,
+    reopened_text: String,
+    exported_bytes: u64,
+    exported_text: String,
 }
 
 #[tauri::command]
@@ -89,6 +94,38 @@ fn remove_document(root: String, id: String) -> Result<LibrarySnapshot, String> 
     Ok(library.snapshot())
 }
 
+#[tauri::command]
+fn read_document_text(root: String, id: String) -> Result<String, String> {
+    Library::open_or_create(Path::new(&root))?.read_text(&id)
+}
+
+/// Raw bytes, so pdf.js can parse a PDF without a JSON round trip.
+#[tauri::command]
+fn read_document_bytes(root: String, id: String) -> Result<tauri::ipc::Response, String> {
+    let bytes = Library::open_or_create(Path::new(&root))?.read_bytes(&id)?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[tauri::command]
+fn save_document(root: String, id: String, text: String) -> Result<Record, String> {
+    let mut library = Library::open_or_create(Path::new(&root))?;
+    library.save_text(&id, &text)
+}
+
+#[tauri::command]
+fn export_document(
+    root: String,
+    id: String,
+    destination: String,
+    text: Option<String>,
+) -> Result<(), String> {
+    Library::open_or_create(Path::new(&root))?.export(
+        &id,
+        Path::new(&destination),
+        text.as_deref(),
+    )
+}
+
 /// Set NOOKEDIT_HEADLESS_REPORT to run the checks on launch, write the results
 /// to that path, and exit. Used by scripts/run-headless.mjs so the library and
 /// PDF benchmark can run in WebView2 without a human clicking.
@@ -98,11 +135,13 @@ fn headless_config() -> Option<HeadlessConfig> {
     Some(HeadlessConfig {
         report_path,
         library_root: std::env::var("NOOKEDIT_HEADLESS_LIBRARY_ROOT").ok(),
+        pdf_path: std::env::var("NOOKEDIT_HEADLESS_PDF_PATH").ok(),
     })
 }
 
-/// Create a library in `root`, import a file, rename it, reopen, and report
-/// what survived. This exercises the same code paths as the UI, through IPC.
+/// Create a library in `root`, import a file, rename it, edit it, export it,
+/// reopen the library, and report what survived. This exercises the same code
+/// paths as the UI, through IPC.
 #[tauri::command]
 fn headless_library_check(root: String) -> Result<HeadlessLibraryReport, String> {
     let root_path = PathBuf::from(&root);
@@ -114,18 +153,31 @@ fn headless_library_check(root: String) -> Result<HeadlessLibraryReport, String>
     let mut library = Library::open_or_create(&root_path)?;
     let imported = library.import_path(&sample)?;
     let renamed = library.rename(&imported.id, "renamed.txt")?;
+
+    let edited = "edited by headless\n";
+    let saved = library.save_text(&imported.id, edited)?;
+
+    let export_path = root_path.join("exported.txt");
+    library.export(&imported.id, &export_path, Some(edited))?;
+    let exported_text =
+        fs::read_to_string(&export_path).map_err(|error| error.to_string())?;
+    let exported_bytes = fs::metadata(&export_path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+
     let library_id = library.file().library_id.clone();
     let record_count = library.file().records.len();
     drop(library);
 
     let reopened = Library::open_or_create(&root_path)?;
     let reopened_count = reopened.file().records.len();
-    let persisted = reopened
-        .file()
-        .records
-        .get(&imported.id)
+    let reopened_record = reopened.file().records.get(&imported.id);
+    let persisted = reopened_record
         .map(|record| record.name == "renamed.txt")
         .unwrap_or(false);
+    let reopened_text = reopened.read_text(&imported.id)?;
+
+    let _ = fs::remove_file(&sample);
 
     Ok(HeadlessLibraryReport {
         root,
@@ -136,6 +188,10 @@ fn headless_library_check(root: String) -> Result<HeadlessLibraryReport, String>
         record_count,
         reopened_count,
         persisted,
+        saved_size: saved.size,
+        reopened_text,
+        exported_bytes,
+        exported_text,
     })
 }
 
@@ -161,6 +217,10 @@ pub fn run() {
             import_documents,
             rename_document,
             remove_document,
+            read_document_text,
+            read_document_bytes,
+            save_document,
+            export_document,
             headless_config,
             headless_library_check,
             save_report,
@@ -196,6 +256,10 @@ mod tests {
         assert_eq!(report.record_count, 1);
         assert_eq!(report.reopened_count, 1);
         assert!(report.persisted);
+        assert_eq!(report.saved_size, "edited by headless\n".len() as u64);
+        assert_eq!(report.reopened_text, "edited by headless\n");
+        assert_eq!(report.exported_text, "edited by headless\n");
+        assert_eq!(report.exported_bytes, "edited by headless\n".len() as u64);
         assert!(library::is_library_id(&report.library_id));
 
         fs::remove_dir_all(&root).unwrap();

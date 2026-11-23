@@ -394,6 +394,86 @@ impl Library {
         Ok(())
     }
 
+    /// A copy of one record, or an error for an unknown id.
+    pub fn record(&self, id: &str) -> Result<Record, String> {
+        self.file
+            .records
+            .get(id)
+            .cloned()
+            .ok_or_else(|| format!("No document with id \"{id}\"."))
+    }
+
+    /// The bytes of a record's file.
+    pub fn read_bytes(&self, id: &str) -> Result<Vec<u8>, String> {
+        let record = self.record(id)?;
+        let path = self.root.join(&record.path);
+        fs::read(&path).map_err(|error| format!("Could not read {}: {error}", path.display()))
+    }
+
+    /// A record's file as UTF-8 text.
+    pub fn read_text(&self, id: &str) -> Result<String, String> {
+        let record = self.record(id)?;
+        let bytes = self.read_bytes(id)?;
+        String::from_utf8(bytes)
+            .map_err(|_| format!("{} is not UTF-8 text.", record.name))
+    }
+
+    /// Replace a text document's contents and update its size and timestamp.
+    /// If the index cannot be written, the old bytes are restored.
+    pub fn save_text(&mut self, id: &str, text: &str) -> Result<Record, String> {
+        let current = self.record(id)?;
+        let path = self.root.join(&current.path);
+        let previous = fs::read(&path).ok();
+
+        atomic_write(&path, text.as_bytes())?;
+
+        let now = now_iso8601();
+        let record = Record {
+            size: text.len() as u64,
+            updated_at: now.clone(),
+            ..current.clone()
+        };
+
+        self.file.records.insert(id.to_string(), record.clone());
+        self.file.updated_at = now;
+
+        if let Err(error) = self.save() {
+            self.file.records.insert(id.to_string(), current);
+            match previous {
+                Some(bytes) => {
+                    let _ = atomic_write(&path, &bytes);
+                }
+                None => {
+                    let _ = fs::remove_file(&path);
+                }
+            }
+            return Err(error);
+        }
+
+        Ok(record)
+    }
+
+    /// Write a record to `destination`. Text documents pass the current editor
+    /// contents so an export never depends on a prior save; everything else is
+    /// copied from disk.
+    pub fn export(
+        &self,
+        id: &str,
+        destination: &Path,
+        text: Option<&str>,
+    ) -> Result<(), String> {
+        let record = self.record(id)?;
+        let bytes = match text {
+            Some(text) => text.as_bytes().to_vec(),
+            None => fs::read(self.root.join(&record.path)).map_err(|error| {
+                format!("Could not read {}: {error}", record.name)
+            })?,
+        };
+
+        atomic_write(destination, &bytes)
+            .map_err(|error| format!("Could not write {}: {error}", destination.display()))
+    }
+
     fn new_document_id(&self) -> String {
         loop {
             let id = create_document_id();
@@ -959,6 +1039,82 @@ mod tests {
         let reopened = Library::open_or_create(&root).unwrap();
         assert_eq!(reopened.snapshot().records.len(), 1);
         assert_eq!(reopened.snapshot().records[0].name, "report (2).pdf");
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn reads_saves_and_exports_documents() {
+        let root = temp_root("io");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+
+        let source = root.join("notes.md");
+        fs::write(&source, "# first\n").unwrap();
+
+        let mut library = Library::open_or_create(&root).unwrap();
+        let record = library.import_path(&source).unwrap();
+
+        assert_eq!(library.read_text(&record.id).unwrap(), "# first\n");
+        assert_eq!(library.read_bytes(&record.id).unwrap(), b"# first\n");
+
+        let edited = "# second\n\nbody ✓\n";
+        let saved = library.save_text(&record.id, edited).unwrap();
+        assert_eq!(saved.size, edited.len() as u64);
+        assert_eq!(library.read_text(&record.id).unwrap(), edited);
+        assert!(saved.updated_at >= record.updated_at);
+
+        // A text export writes the supplied contents, not the saved file.
+        let export = root.join("out").join("export.md");
+        library
+            .export(&record.id, &export, Some("exported text\n"))
+            .unwrap();
+        assert_eq!(fs::read_to_string(&export).unwrap(), "exported text\n");
+
+        // Without text, the export copies the document's bytes.
+        let copy = root.join("copy.md");
+        library.export(&record.id, &copy, None).unwrap();
+        assert_eq!(fs::read_to_string(&copy).unwrap(), edited);
+
+        // The edit survives a reopen, including the index's size field.
+        drop(library);
+        let reopened = Library::open_or_create(&root).unwrap();
+        assert_eq!(reopened.read_text(&record.id).unwrap(), edited);
+        assert_eq!(reopened.file().records[&record.id].size, edited.len() as u64);
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn read_text_rejects_binary_files() {
+        let root = temp_root("binary");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+
+        let source = root.join("data.bin");
+        fs::write(&source, [0xff, 0xfe, 0x00]).unwrap();
+
+        let mut library = Library::open_or_create(&root).unwrap();
+        let record = library.import_path(&source).unwrap();
+
+        let error = library.read_text(&record.id).err().unwrap();
+        assert!(error.contains("not UTF-8 text"), "{error}");
+        assert_eq!(library.read_bytes(&record.id).unwrap(), [0xff, 0xfe, 0x00]);
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn read_save_and_export_reject_unknown_ids() {
+        let root = temp_root("unknown");
+        let _ = fs::remove_dir_all(&root);
+
+        let library = Library::open_or_create(&root).unwrap();
+        let missing = "doc_missing000";
+
+        assert!(library.read_text(missing).is_err());
+        assert!(library.read_bytes(missing).is_err());
+        assert!(library.export(missing, &root.join("x.txt"), None).is_err());
 
         fs::remove_dir_all(&root).unwrap();
     }
