@@ -79,10 +79,10 @@ not require a reader update. Records are validated strictly.
 | `id` | string | `doc_` + 10 base-36 characters. |
 | `name` | string | Display name and file name on disk. |
 | `mediaType` | string | Inferred from the extension when not supplied. |
-| `size` | integer | Bytes. |
+| `size` | integer | Bytes. Updated when a text document is saved. |
 | `path` | string | Always `documents/<id>/<name>`. |
 | `createdAt` | ISO 8601 string | |
-| `updatedAt` | ISO 8601 string | Bumped by rename. |
+| `updatedAt` | ISO 8601 string | Bumped by rename and by a text edit. |
 
 `path` is stored rather than derived at read time so a record is self-describing
 in logs and diffs. `parseLibraryFile` rejects a record whose `path` disagrees

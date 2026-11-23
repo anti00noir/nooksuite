@@ -20,7 +20,7 @@ export const tools = [
     name: 'NookEdit',
     tagline: 'Light-touch edits right before a file leaves your hands.',
     description:
-      'A native document library: import, manage, and soon edit and export the files you reuse. In development.',
+      'A native document library: import, edit text and Markdown, view PDFs, and export the files you reuse. In development.',
     status: 'planned',
     targets: ['Native'],
   },

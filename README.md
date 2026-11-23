@@ -32,13 +32,16 @@ opening, editing, and exporting documents from the same on-disk library NookBin
 uses. Planned formats are PDF, plain text, and Markdown; PDF scope is view,
 page operations, and annotations/forms rather than text reflow.
 
-NookEdit is at **Phase 2**: the desktop app opens a library folder, imports
-documents, and manages them on disk using the format in
+NookEdit is at **Phase 3**: the desktop app opens a library folder, imports
+documents, and opens them for editing. Text and Markdown use CodeMirror (with a
+Markdown preview), PDFs use a pdf.js viewer, and every format can be exported.
+The on-disk format is specified in
 [`docs/library-format.md`](docs/library-format.md). NookBin stores the same
-records in IndexedDB until the native host lands. Editing and PDF viewing are
-next. See [`docs/architecture.md`](docs/architecture.md) for how the pieces fit
-together and [`docs/spikes/p0/README.md`](docs/spikes/p0/README.md) for the
-feasibility results.
+records in IndexedDB until the native host lands. PDF page operations and
+annotations are next. See [`docs/architecture.md`](docs/architecture.md) for how
+the pieces fit together and
+[`docs/spikes/p0/README.md`](docs/spikes/p0/README.md) for the feasibility
+results.
 
 See [`docs/architecture.md`](docs/architecture.md) for detailed architecture notes.
 
@@ -83,7 +86,7 @@ nooksuite/
     │   │   └── dist/                 # Build output (Chrome loads this)
     │   └── desktop/                  # Reserved for a future native port
     ├── nookedit/                     # Native document editor (Tauri 2 + React)
-    │   └── desktop/                  # Phase 2 library app (import/manage on disk)
+    │   └── desktop/                  # Library, text/Markdown editor, PDF viewer
     └── nooknotes/                    # Future tool
 ```
 

@@ -123,14 +123,43 @@ NookEdit implements that layout in `tools/nookedit/desktop/src-tauri/src/library
   saves the index.
 - `rename` moves the file and updates the record; `remove` deletes the folder
   and the record.
+- `read_text` / `read_bytes` read a record; `save_text` replaces a text file
+  atomically and updates its size and `updatedAt`; `export` writes a copy to a
+  chosen destination.
 - `atomic_write` writes through `library.json.tmp` and renames over the index.
 - Ids, name normalization, media-type inference, and timestamp validation
   mirror `packages/core/src/library/`.
 
 Tauri commands (`open_library`, `import_documents`, `rename_document`,
-`remove_document`) wrap those operations. The remembered library path lives in
-`settings.json` in the app config directory, so the app reopens the last
-library on launch.
+`remove_document`, `read_document_text`, `read_document_bytes`,
+`save_document`, `export_document`) wrap those operations. The remembered
+library path lives in `settings.json` in the app config directory, so the app
+reopens the last library on launch.
+
+`read_document_bytes` returns `tauri::ipc::Response`, so large files reach the
+webview as an `ArrayBuffer` instead of a JSON array of numbers.
+
+#### Opening and editing (Phase 3)
+
+The renderer picks a mode from the record's media type and extension:
+
+- Text-like files open in CodeMirror 6. Markdown also has a rendered preview
+  (`react-markdown` with GFM). Saving sends the buffer to `save_document`; the
+  Rust side writes the file atomically and updates the index. `Ctrl+S` and the
+  Save button share that path.
+- PDFs are read as bytes and rendered by pdf.js to a canvas, with page
+  navigation, zoom, fit-width, and fit-page. This is view-only; page operations
+  and annotations are Phase 5.
+- Images render from an object URL.
+- Everything else shows metadata and can still be exported.
+
+Export writes the current editor contents for text and Markdown (so unsaved
+edits are included) and copies bytes for PDFs, images, and unknown formats.
+Leaving the editor with unsaved changes asks first. Closing the window is not
+guarded yet.
+
+The editor, PDF viewer, and Markdown renderer are lazy-loaded; the library
+screen boots without them.
 
 The same module is intended to back the native messaging host in Phase 4, so
 the extension and the app do not grow two implementations. Until then, the
