@@ -4,8 +4,10 @@ NookEdit and NookBin share one on-disk library. This document is the contract
 between them: the native app reads and writes it directly, and the extension
 uses the same record shape for its IndexedDB fallback.
 
-The format lives in `@nooksuite/core` (`packages/core/src/library/`), so both
-targets parse and validate it with the same code.
+The format lives in `@nooksuite/core` (`packages/core/src/library/`). The native
+app mirrors it in `tools/nookedit/desktop/src-tauri/src/library.rs`, and both
+sides parse the shared fixture
+`packages/core/tests/fixtures/library-v1.json` in their tests.
 
 ## Layout
 
@@ -24,7 +26,8 @@ targets parse and validate it with the same code.
   the way in Explorer and on Unix.
 - `documents/<id>/` is the record's folder. Bytes keep their original name, so
   a user browsing the folder sees readable files.
-- Only the native host writes the library. It uses a temp-then-rename write for
+- The native app owns the library today; the native messaging host will reuse
+  the same implementation. Writes go through a temp-then-rename for
   `library.json`, so a reader never observes a partial index.
 
 ## `library.json`

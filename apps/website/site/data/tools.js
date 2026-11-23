@@ -20,9 +20,9 @@ export const tools = [
     name: 'NookEdit',
     tagline: 'Light-touch edits right before a file leaves your hands.',
     description:
-      'Editing tools built around the suite\u2019s file flows. In planning.',
+      'A native document library: import, manage, and soon edit and export the files you reuse. In development.',
     status: 'planned',
-    targets: ['Browser', 'Native'],
+    targets: ['Native'],
   },
   {
     id: 'nooknotes',

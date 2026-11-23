@@ -113,6 +113,33 @@ The on-disk layout the host is responsible for:
         └── <original file>
 ```
 
+#### Native implementation (Phase 2)
+
+NookEdit implements that layout in `tools/nookedit/desktop/src-tauri/src/library.rs`:
+
+- `Library::open_or_create` creates `.nooksuite/` and `documents/` and loads or
+  writes `library.json`.
+- `import_path` copies a file into `documents/<id>/`, normalizes its name, and
+  saves the index.
+- `rename` moves the file and updates the record; `remove` deletes the folder
+  and the record.
+- `atomic_write` writes through `library.json.tmp` and renames over the index.
+- Ids, name normalization, media-type inference, and timestamp validation
+  mirror `packages/core/src/library/`.
+
+Tauri commands (`open_library`, `import_documents`, `rename_document`,
+`remove_document`) wrap those operations. The remembered library path lives in
+`settings.json` in the app config directory, so the app reopens the last
+library on launch.
+
+The same module is intended to back the native messaging host in Phase 4, so
+the extension and the app do not grow two implementations. Until then, the
+extension keeps using the IndexedDB fallback described above.
+
+A shared fixture, `packages/core/tests/fixtures/library-v1.json`, is parsed by
+both the JavaScript and Rust test suites. A field-name or validation change
+that breaks compatibility fails one of them.
+
 ### File transfer
 
 Chrome extension messages do not carry a `File` or `Blob` directly, so the panel converts the selected file to a base64 string:
