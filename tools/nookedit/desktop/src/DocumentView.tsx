@@ -114,6 +114,13 @@ export function DocumentView({ root, record, onBack, onRecordUpdated }: Props) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [editable, save]);
 
+  function onContentChange(next: string) {
+    setContent(next);
+    // A "Saved." banner left over from the last save would be misleading as
+    // soon as the buffer changes again.
+    setNotice(null);
+  }
+
   function requestBack() {
     if (dirty) setConfirmDiscard(true);
     else onBack();
@@ -212,7 +219,7 @@ export function DocumentView({ root, record, onBack, onRecordUpdated }: Props) {
                 value={content}
                 markdown={kind === 'markdown'}
                 visible={!preview}
-                onChange={setContent}
+                onChange={onContentChange}
                 onSave={() => void save()}
               />
             </div>
