@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "libraryId": "lib_fixture001",
+  "createdAt": "2026-01-01T00:00:00.000Z",
+  "updatedAt": "2026-01-02T12:34:56.789Z",
+  "records": {
+    "doc_fixture001": {
+      "id": "doc_fixture001",
+      "name": "Quarterly report.pdf",
+      "mediaType": "application/pdf",
+      "size": 482113,
+      "path": "documents/doc_fixture001/Quarterly report.pdf",
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "updatedAt": "2026-01-01T00:00:00.000Z"
+    },
+    "doc_fixture002": {
+      "id": "doc_fixture002",
+      "name": "notes (2).md",
+      "mediaType": "text/markdown",
+      "size": 128,
+      "path": "documents/doc_fixture002/notes (2).md",
+      "createdAt": "2026-01-02T12:34:56.789Z",
+      "updatedAt": "2026-01-02T12:34:56.789Z"
+    }
+  }
+}
