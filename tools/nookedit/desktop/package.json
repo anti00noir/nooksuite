@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "NookEdit native app (Tauri 2) — P0 spike harness.",
+  "description": "NookEdit native document app (Tauri 2).",
   "scripts": {
     "predev:web": "node scripts/generate-fixture.mjs",
     "dev:web": "vite",

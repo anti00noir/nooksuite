@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "NookEdit — P0 spikes",
+        "title": "NookEdit",
         "width": 1000,
         "height": 720,
         "resizable": true

@@ -1,190 +1,144 @@
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import { runPdfBenchmark, type PdfBenchmarkResult } from './pdf-benchmark';
 
-type FsSpikeReport = {
-  root: string;
-  libraryJson: string;
-  documentPath: string;
-  documentText: string;
-  atomicWrite: boolean;
-  hiddenDir: boolean;
-  nestedDirs: boolean;
-};
+import { LibraryView } from './LibraryView';
+import { SetupView } from './SetupView';
+import { runHeadless } from './headless';
+import { api, type HeadlessConfig, type LibrarySnapshot } from './lib/api';
+import { describeError } from './lib/errors';
 
-type HeadlessConfig = {
-  reportPath: string;
-  fsRoot: string | null;
-};
+type Phase = 'loading' | 'setup' | 'library';
 
-function describeError(error: unknown) {
-  if (error instanceof Error) return `${error.name}: ${error.message}`;
-  return String(error);
-}
+// Module scope so a StrictMode double-mount cannot boot twice.
+let booted = false;
 
-// Module scope so a StrictMode double-mount cannot start two benchmark runs.
-let headlessStarted = false;
+export default function App() {
+  const [phase, setPhase] = useState<Phase>('loading');
+  const [snapshot, setSnapshot] = useState<LibrarySnapshot | null>(null);
+  const [defaultPath, setDefaultPath] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-async function runHeadless(config: HeadlessConfig) {
-  const report: Record<string, unknown> = {
-    startedAt: new Date().toISOString(),
-    userAgent: navigator.userAgent,
-  };
+  const available = isTauri();
 
-  try {
-    report.pdf = await runPdfBenchmark('/fixtures/100-pages.pdf');
-  } catch (error) {
-    report.pdfError = describeError(error);
-  }
+  async function openLibrary(path: string) {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
 
-  if (config.fsRoot) {
     try {
-      report.fs = await invoke<FsSpikeReport>('run_fs_spike', { root: config.fsRoot });
-    } catch (error) {
-      report.fsError = describeError(error);
+      const next = await api.openLibrary(path);
+      await api.saveSettings({ libraryPath: next.root });
+      setSnapshot(next);
+      setPhase('library');
+      return true;
+    } catch (cause) {
+      setError(describeError(cause));
+      return false;
+    } finally {
+      setBusy(false);
     }
   }
 
-  report.finishedAt = new Date().toISOString();
-  await invoke('save_report', { path: config.reportPath, body: JSON.stringify(report, null, 2) });
-  await invoke('quit_app');
-}
-
-export default function App() {
-  const [fsReport, setFsReport] = useState<FsSpikeReport | null>(null);
-  const [fsError, setFsError] = useState<string | null>(null);
-  const [fsBusy, setFsBusy] = useState(false);
-
-  const [pdfResult, setPdfResult] = useState<PdfBenchmarkResult | null>(null);
-  const [pdfError, setPdfError] = useState<string | null>(null);
-  const [pdfBusy, setPdfBusy] = useState(false);
-
   useEffect(() => {
-    if (headlessStarted) return;
-    headlessStarted = true;
+    if (booted) return;
+    booted = true;
 
-    invoke<HeadlessConfig | null>('headless_config')
-      .then((config) => {
-        if (config) return runHeadless(config);
-        return undefined;
-      })
-      .catch((error) => {
-        console.error('Headless run failed', error);
-      });
-  }, []);
+    void (async () => {
+      let config: HeadlessConfig | null = null;
 
-  async function runFsSpike() {
-    setFsBusy(true);
-    setFsError(null);
-    setFsReport(null);
+      try {
+        config = await invoke<HeadlessConfig | null>('headless_config');
+      } catch {
+        // Not in Tauri; the setup screen explains what to run instead.
+      }
 
-    try {
-      const root = await open({
-        directory: true,
-        multiple: false,
-        title: 'Choose a folder for the NookEdit library',
-      });
-
-      if (!root) {
-        setFsError('No folder selected.');
+      if (config) {
+        await runHeadless(config);
         return;
       }
 
-      const report = await invoke<FsSpikeReport>('run_fs_spike', { root });
-      setFsReport(report);
-    } catch (error) {
-      setFsError(describeError(error));
-    } finally {
-      setFsBusy(false);
-    }
+      if (!isTauri()) {
+        setPhase('setup');
+        return;
+      }
+
+      try {
+        setDefaultPath(await api.defaultLibraryPath());
+      } catch (cause) {
+        console.warn('Could not resolve the default library path', cause);
+      }
+
+      try {
+        const settings = await api.loadSettings();
+
+        if (settings.libraryPath && (await openLibrary(settings.libraryPath))) {
+          return;
+        }
+      } catch (cause) {
+        setError(describeError(cause));
+      }
+
+      setPhase('setup');
+    })().catch((cause) => {
+      setError(describeError(cause));
+      setPhase('setup');
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!notice) return;
+
+    const timer = window.setTimeout(() => setNotice(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  async function chooseLibrary() {
+    if (!available) return;
+
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: 'Choose a library folder',
+    });
+
+    if (typeof selected === 'string') await openLibrary(selected);
   }
 
-  async function runPdf() {
-    setPdfBusy(true);
-    setPdfError(null);
-    setPdfResult(null);
+  async function useDefaultLibrary() {
+    if (defaultPath) await openLibrary(defaultPath);
+  }
 
-    try {
-      setPdfResult(await runPdfBenchmark('/fixtures/100-pages.pdf'));
-    } catch (error) {
-      setPdfError(describeError(error));
-    } finally {
-      setPdfBusy(false);
-    }
+  if (phase === 'loading') {
+    return <main className="app-loading">Opening library…</main>;
+  }
+
+  if (phase === 'setup' || !snapshot) {
+    return (
+      <SetupView
+        available={available}
+        busy={busy}
+        defaultPath={defaultPath}
+        error={error}
+        onChoose={() => void chooseLibrary()}
+        onUseDefault={() => void useDefaultLibrary()}
+      />
+    );
   }
 
   return (
-    <main className="app">
-      <header className="app-header">
-        <h1>NookEdit — P0 spikes</h1>
-        <p>Throwaway harnesses for the Phase 0 go/no-go checks.</p>
-      </header>
-
-      <section className="card">
-        <h2>Tauri filesystem spike</h2>
-        <p>
-          Pick a folder, then create <code>.nooksuite/library.json</code> and a nested{' '}
-          <code>documents/&lt;id&gt;/hello.txt</code>.
-        </p>
-        <button type="button" onClick={runFsSpike} disabled={fsBusy}>
-          {fsBusy ? 'Running…' : 'Pick folder and run'}
-        </button>
-        {fsError && <p className="error">{fsError}</p>}
-        {fsReport && (
-          <dl className="report">
-            <dt>Root</dt>
-            <dd>{fsReport.root}</dd>
-            <dt>Hidden dir</dt>
-            <dd>{String(fsReport.hiddenDir)}</dd>
-            <dt>Nested dirs</dt>
-            <dd>{String(fsReport.nestedDirs)}</dd>
-            <dt>Atomic write</dt>
-            <dd>{String(fsReport.atomicWrite)}</dd>
-            <dt>library.json</dt>
-            <dd>{fsReport.libraryJson}</dd>
-            <dt>Document</dt>
-            <dd>{fsReport.documentPath}</dd>
-            <dt>Read back</dt>
-            <dd>{fsReport.documentText.trim()}</dd>
-          </dl>
-        )}
-      </section>
-
-      <section className="card">
-        <h2>pdf.js benchmark</h2>
-        <p>
-          Renders all pages of <code>public/fixtures/100-pages.pdf</code> to canvases and reports
-          timing.
-        </p>
-        <button type="button" onClick={runPdf} disabled={pdfBusy}>
-          {pdfBusy ? 'Rendering…' : 'Run PDF benchmark'}
-        </button>
-        {pdfError && <p className="error">{pdfError}</p>}
-        {pdfResult && (
-          <dl className="report">
-            <dt>Pages</dt>
-            <dd>{pdfResult.pages}</dd>
-            <dt>First page</dt>
-            <dd>{pdfResult.firstPageMs.toFixed(0)} ms</dd>
-            <dt>Total</dt>
-            <dd>{pdfResult.totalMs.toFixed(0)} ms</dd>
-            <dt>Per page</dt>
-            <dd>{pdfResult.msPerPage.toFixed(1)} ms</dd>
-            <dt>Pages/sec</dt>
-            <dd>{pdfResult.pagesPerSecond.toFixed(1)}</dd>
-            <dt>JS heap</dt>
-            <dd>{pdfResult.heapMb == null ? 'n/a' : `${pdfResult.heapMb.toFixed(1)} MB`}</dd>
-          </dl>
-        )}
-      </section>
-
-      <footer className="app-footer">
-        <p>
-          In a plain browser the Tauri spike fails with “not in a Tauri window” — expected. Run{' '}
-          <code>npm run tauri dev</code> after installing Rust + MSVC to test it for real.
-        </p>
-      </footer>
-    </main>
+    <LibraryView
+      snapshot={snapshot}
+      busy={busy}
+      error={error}
+      notice={notice}
+      onSnapshot={setSnapshot}
+      onOpenLibrary={openLibrary}
+      onBusy={setBusy}
+      onError={setError}
+      onNotice={setNotice}
+    />
   );
 }

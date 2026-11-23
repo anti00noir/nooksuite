@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for the P0 spike window.",
+  "description": "Default capability for the NookEdit window.",
   "windows": ["main"],
   "permissions": ["core:default", "dialog:default"]
 }

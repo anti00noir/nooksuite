@@ -1,7 +1,7 @@
 [package]
 name = "nookedit"
 version = "0.1.0"
-description = "NookEdit native app — P0 spike harness"
+description = "NookEdit native document app"
 authors = ["NookSuite"]
 edition = "2021"
 

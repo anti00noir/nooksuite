@@ -1,11 +1,12 @@
-// Runs the P0 spikes inside a real Tauri/WebView2 window without a human
+// Runs the checks inside a real Tauri/WebView2 window without a human
 // clicking. The app reads NOOKEDIT_HEADLESS_REPORT on launch, renders the PDF
-// benchmark (and optionally the filesystem spike), writes JSON, and exits.
+// benchmark, exercises the library (import/rename/reopen), writes JSON, and
+// exits.
 //
 // Usage:
-//   node scripts/run-headless.mjs                 # uses release build if present
-//   node scripts/run-headless.mjs --debug         # force the debug build
-//   node scripts/run-headless.mjs --skip-fs       # benchmark only
+//   node scripts/run-headless.mjs                  # uses release build if present
+//   node scripts/run-headless.mjs --debug          # force the debug build
+//   node scripts/run-headless.mjs --skip-library   # PDF benchmark only
 //
 // Build first with: npm run tauri build
 
@@ -18,7 +19,8 @@ const here = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z
 const targetDir = path.join(here, '..', 'src-tauri', 'target');
 
 const forceDebug = process.argv.includes('--debug');
-const skipFs = process.argv.includes('--skip-fs');
+const skipLibrary =
+  process.argv.includes('--skip-library') || process.argv.includes('--skip-fs');
 const timeoutMs = 180_000;
 
 function findExecutable() {
@@ -42,15 +44,15 @@ const exe = findExecutable();
 const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nookedit-headless-'));
 const reportPath = path.join(workDir, `report-${stamp}.json`);
-const fsRoot = path.join(workDir, 'library');
+const libraryRoot = path.join(workDir, 'library');
 
-if (!skipFs) fs.mkdirSync(fsRoot, { recursive: true });
+if (!skipLibrary) fs.mkdirSync(libraryRoot, { recursive: true });
 
 console.log(`Running ${exe}`);
 console.log(`Report: ${reportPath}`);
 
 const env = { ...process.env, NOOKEDIT_HEADLESS_REPORT: reportPath };
-if (!skipFs) env.NOOKEDIT_HEADLESS_FS_ROOT = fsRoot;
+if (!skipLibrary) env.NOOKEDIT_HEADLESS_LIBRARY_ROOT = libraryRoot;
 
 const child = spawn(exe, [], { env, stdio: 'inherit' });
 
@@ -90,10 +92,13 @@ if (report.pdf) {
   );
 }
 
-if (!skipFs && report.fs) {
-  const { hiddenDir, nestedDirs, atomicWrite } = report.fs;
+if (!skipLibrary && report.library) {
+  const { libraryId, importedName, renamedName, recordCount, reopenedCount, persisted } =
+    report.library;
   console.log(
-    `fs spike: hiddenDir=${hiddenDir} nestedDirs=${nestedDirs} atomicWrite=${atomicWrite} root=${report.fs.root}`,
+    `library check: ${libraryId} imported=${JSON.stringify(importedName)} ` +
+      `renamed=${JSON.stringify(renamedName)} records=${recordCount} ` +
+      `reopened=${reopenedCount} persisted=${persisted}`,
   );
 }
 
