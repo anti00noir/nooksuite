@@ -17,7 +17,7 @@ Current behavior:
 1. Click the NookBin toolbar icon, or press **Alt+Shift+N**, to open the floating panel.
 2. The panel docks to the right side of the page. Drag its header to move it anywhere, use the dock button to snap it back to the right, or close it with the **×** button.
 3. Drop one or more files into the drop guide, or click it (or the header **Add files** button) to browse.
-4. Files are stored in the extension's IndexedDB.
+4. Files are stored as records in the extension's IndexedDB, which is the fallback when the native library is not installed.
 5. Search, filter by PDF/Images, or sort the list by name or size.
 6. Open a page with an upload form and click the send icon next to a stored file.
 
@@ -32,10 +32,12 @@ opening, editing, and exporting documents from the same on-disk library NookBin
 uses. Planned formats are PDF, plain text, and Markdown; PDF scope is view,
 page operations, and annotations/forms rather than text reflow.
 
-NookEdit is at **Phase 0**: only feasibility spikes exist. See
-[`docs/spikes/p0/README.md`](docs/spikes/p0/README.md) for the go/no-go checks
-(File System Access API in extension contexts, Tauri filesystem writes, and
-pdf.js performance in WebView2) and their current results.
+NookEdit is at **Phase 1**: the shared library format and record model exist in
+`@nooksuite/core`, and NookBin already stores records. Phase 2 turns the P0
+harness into the real app and implements the library on disk. See
+[`docs/library-format.md`](docs/library-format.md) for the format and
+[`docs/spikes/p0/README.md`](docs/spikes/p0/README.md) for the feasibility
+results that led here.
 
 See [`docs/architecture.md`](docs/architecture.md) for detailed architecture notes.
 
@@ -46,6 +48,7 @@ nooksuite/
 ├── package.json                      # Root: npm workspaces, shared scripts
 ├── docs/
 │   ├── architecture.md               # Suite-wide architecture notes
+│   ├── library-format.md             # Shared on-disk library format v1
 │   └── spikes/                       # Phase 0 feasibility findings
 ├── spikes/
 │   └── p0/
@@ -55,9 +58,10 @@ nooksuite/
 │       ├── src/
 │       │   ├── index.js              # Public exports
 │       │   ├── panel-position.js     # Floating-panel geometry helpers
-│       │   ├── file-storage.js       # File storage interface + validation
+│       │   ├── record-storage.js     # Record storage interface + shared rules
+│       │   ├── library/              # Library format: ids, records, library.json
 │       │   └── backends/
-│       │       └── idb-file-storage.js  # IndexedDB backend
+│       │       └── idb-record-storage.js  # IndexedDB backend + legacy migration
 │       └── tests/                    # node --test unit tests
 ├── apps/
 │   └── website/                      # @nooksuite/website — overview site
