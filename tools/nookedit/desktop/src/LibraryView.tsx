@@ -16,6 +16,7 @@ type Props = {
   notice: string | null;
   onSnapshot: (snapshot: LibrarySnapshot) => void;
   onOpenLibrary: (path: string) => Promise<boolean>;
+  onOpenDocument: (record: DocumentRecord) => void;
   onBusy: (busy: boolean) => void;
   onError: (message: string | null) => void;
   onNotice: (message: string | null) => void;
@@ -28,6 +29,7 @@ export function LibraryView({
   notice,
   onSnapshot,
   onOpenLibrary,
+  onOpenDocument,
   onBusy,
   onError,
   onNotice,
@@ -234,6 +236,7 @@ export function LibraryView({
               key={record.id}
               record={record}
               busy={busy}
+              onOpen={onOpenDocument}
               onDelete={setPendingDelete}
               onRename={rename}
             />

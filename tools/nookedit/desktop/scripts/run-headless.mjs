@@ -1,7 +1,7 @@
 // Runs the checks inside a real Tauri/WebView2 window without a human
 // clicking. The app reads NOOKEDIT_HEADLESS_REPORT on launch, renders the PDF
-// benchmark, exercises the library (import/rename/reopen), writes JSON, and
-// exits.
+// benchmark, exercises the library (import/rename/edit/export/reopen), reads
+// documents back over IPC, imports and renders a PDF, writes JSON, and exits.
 //
 // Usage:
 //   node scripts/run-headless.mjs                  # uses release build if present
@@ -45,6 +45,7 @@ const stamp = new Date().toISOString().replace(/[:.]/g, '-');
 const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nookedit-headless-'));
 const reportPath = path.join(workDir, `report-${stamp}.json`);
 const libraryRoot = path.join(workDir, 'library');
+const pdfPath = path.join(here, '..', 'public', 'fixtures', '100-pages.pdf');
 
 if (!skipLibrary) fs.mkdirSync(libraryRoot, { recursive: true });
 
@@ -52,7 +53,10 @@ console.log(`Running ${exe}`);
 console.log(`Report: ${reportPath}`);
 
 const env = { ...process.env, NOOKEDIT_HEADLESS_REPORT: reportPath };
-if (!skipLibrary) env.NOOKEDIT_HEADLESS_LIBRARY_ROOT = libraryRoot;
+if (!skipLibrary) {
+  env.NOOKEDIT_HEADLESS_LIBRARY_ROOT = libraryRoot;
+  if (fs.existsSync(pdfPath)) env.NOOKEDIT_HEADLESS_PDF_PATH = pdfPath;
+}
 
 const child = spawn(exe, [], { env, stdio: 'inherit' });
 
@@ -101,5 +105,24 @@ if (!skipLibrary && report.library) {
       `reopened=${reopenedCount} persisted=${persisted}`,
   );
 }
+
+if (report.ipc) {
+  const { readMatches, isArrayBuffer, byteLength, savedSize, saveMatches } = report.ipc;
+  console.log(
+    `ipc check: readMatches=${readMatches} arrayBuffer=${isArrayBuffer} ` +
+      `bytes=${byteLength} savedSize=${savedSize} saveMatches=${saveMatches}`,
+  );
+}
+
+if (report.pdfViewer) {
+  const { name, pages, width, height, byteLength } = report.pdfViewer;
+  console.log(
+    `pdf viewer: ${JSON.stringify(name)} pages=${pages} page1=${width}x${height} ` +
+      `bytes=${byteLength}`,
+  );
+}
+
+if (report.ipcError) console.error(`ipc error: ${report.ipcError}`);
+if (report.pdfViewerError) console.error(`pdf viewer error: ${report.pdfViewerError}`);
 
 console.log(`\nTemp workspace: ${workDir}`);

@@ -1,7 +1,4 @@
-import * as pdfjs from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-
-pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+import { pdfjs } from './lib/pdf';
 
 export type PdfBenchmarkResult = {
   pages: number;

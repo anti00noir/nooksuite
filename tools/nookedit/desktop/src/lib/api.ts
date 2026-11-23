@@ -29,6 +29,7 @@ export type Settings = {
 export type HeadlessConfig = {
   reportPath: string;
   libraryRoot: string | null;
+  pdfPath: string | null;
 };
 
 export const api = {
@@ -42,4 +43,16 @@ export const api = {
     invoke<LibrarySnapshot>('rename_document', { root, id, name }),
   removeDocument: (root: string, id: string) =>
     invoke<LibrarySnapshot>('remove_document', { root, id }),
+  readDocumentText: (root: string, id: string) =>
+    invoke<string>('read_document_text', { root, id }),
+  readDocumentBytes: (root: string, id: string) =>
+    invoke<ArrayBuffer>('read_document_bytes', { root, id }),
+  saveDocument: (root: string, id: string, text: string) =>
+    invoke<DocumentRecord>('save_document', { root, id, text }),
+  exportDocument: (
+    root: string,
+    id: string,
+    destination: string,
+    text: string | null,
+  ) => invoke<void>('export_document', { root, id, destination, text }),
 };
