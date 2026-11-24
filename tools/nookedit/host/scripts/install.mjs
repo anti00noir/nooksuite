@@ -152,6 +152,35 @@ function runReg(args) {
   return spawnSync('reg', args, { encoding: 'utf8', windowsHide: true });
 }
 
+/**
+ * Replace the installed binary without truncating a working copy first.
+ *
+ * A running host (for example, the one the browser started from a previous
+ * install) locks its executable on Windows. Copying next to it and renaming
+ * over it fails cleanly in that case, leaving the old install usable and the
+ * error actionable.
+ */
+function installBinary(source, destination) {
+  const temporary = `${destination}.new`;
+  fs.rmSync(temporary, { force: true });
+
+  try {
+    fs.copyFileSync(source, temporary);
+    fs.renameSync(temporary, destination);
+  } catch (error) {
+    fs.rmSync(temporary, { force: true });
+
+    if (['EBUSY', 'EPERM', 'EACCES'].includes(error.code)) {
+      fail(
+        `Could not replace ${destination} because it is in use.\n` +
+          'Close the NookBin panel, restart the browser, or end nooksuite-host.exe, then run this again.',
+      );
+    }
+
+    throw error;
+  }
+}
+
 function registerWindows(browsers, manifestPath) {
   for (const browser of browsers) {
     const result = runReg([
@@ -256,7 +285,7 @@ function main() {
 
   fs.mkdirSync(targetDir, { recursive: true });
   const installed = path.join(targetDir, hostBinaryName());
-  fs.copyFileSync(source, installed);
+  installBinary(source, installed);
 
   const manifest = {
     name: HOST_NAME,
