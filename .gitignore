@@ -1,6 +1,6 @@
 node_modules/
 coverage/
 dist/
-**/src-tauri/target/
+**/target/
 **/public/fixtures/
 **/src-tauri/gen/schemas/

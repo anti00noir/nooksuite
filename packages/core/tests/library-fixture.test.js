@@ -5,7 +5,7 @@ import { describe, it } from 'node:test';
 import { parseLibraryFile, serializeLibraryFile } from '../src/index.js';
 
 // Shared with the Rust implementation in
-// tools/nookedit/desktop/src-tauri/src/library.rs. If either side changes a
+// crates/nooksuite-library/src/library.rs. If either side changes a
 // field name or a validation rule, one of the two test suites fails.
 const FIXTURE_URL = new URL('./fixtures/library-v1.json', import.meta.url);
 

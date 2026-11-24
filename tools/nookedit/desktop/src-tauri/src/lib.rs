@@ -1,12 +1,16 @@
-mod library;
-mod settings;
-
-use library::{ImportOutcome, Library, LibrarySnapshot, Record};
+use nooksuite_library::library::{ImportOutcome, Library, LibrarySnapshot, Record};
+use nooksuite_library::settings::{self, Settings};
 use serde::Serialize;
-use settings::Settings;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::Manager;
+
+fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_config_dir()
+        .map(|directory| directory.join(settings::SETTINGS_FILE))
+        .map_err(|error| error.to_string())
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,14 +48,14 @@ fn default_library_path(app: tauri::AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 fn load_settings(app: tauri::AppHandle) -> Settings {
-    settings::settings_path(&app)
+    settings_path(&app)
         .map(|path| settings::read_settings(&path))
         .unwrap_or_default()
 }
 
 #[tauri::command]
 fn save_settings(app: tauri::AppHandle, settings: Settings) -> Result<(), String> {
-    let path = settings::settings_path(&app)?;
+    let path = settings_path(&app)?;
     settings::write_settings(&path, &settings)
 }
 
@@ -119,11 +123,7 @@ fn export_document(
     destination: String,
     text: Option<String>,
 ) -> Result<(), String> {
-    Library::open_or_create(Path::new(&root))?.export(
-        &id,
-        Path::new(&destination),
-        text.as_deref(),
-    )
+    Library::open_or_create(Path::new(&root))?.export(&id, Path::new(&destination), text.as_deref())
 }
 
 /// Set NOOKEDIT_HEADLESS_REPORT to run the checks on launch, write the results
@@ -159,8 +159,7 @@ fn headless_library_check(root: String) -> Result<HeadlessLibraryReport, String>
 
     let export_path = root_path.join("exported.txt");
     library.export(&imported.id, &export_path, Some(edited))?;
-    let exported_text =
-        fs::read_to_string(&export_path).map_err(|error| error.to_string())?;
+    let exported_text = fs::read_to_string(&export_path).map_err(|error| error.to_string())?;
     let exported_bytes = fs::metadata(&export_path)
         .map(|metadata| metadata.len())
         .unwrap_or(0);

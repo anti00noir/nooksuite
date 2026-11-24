@@ -1,26 +1,24 @@
-//! App-level settings, stored in the Tauri config directory.
+//! Settings shared by the desktop app and the native messaging host.
 //!
 //! Only the library location is persisted for now. A missing or corrupt file
-//! falls back to defaults so a bad write can never keep the app from starting.
+//! falls back to defaults so a bad write can never keep an app from starting.
+//!
+//! The file lives in the app config directory (`settings.json`). The desktop
+//! app resolves that directory through Tauri; the host resolves the same path
+//! from the platform config directory, so both read one file.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
-use tauri::Manager;
+use std::path::Path;
 
 pub const SETTINGS_FILE: &str = "settings.json";
+/// Tauri's identifier for NookEdit; also the app config directory name.
+pub const APP_IDENTIFIER: &str = "dev.nooksuite.nookedit";
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub library_path: Option<String>,
-}
-
-pub fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    app.path()
-        .app_config_dir()
-        .map(|directory| directory.join(SETTINGS_FILE))
-        .map_err(|error| error.to_string())
 }
 
 pub fn read_settings(path: &Path) -> Settings {
@@ -43,6 +41,7 @@ pub fn write_settings(path: &Path, settings: &Settings) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     fn temp_path(label: &str) -> PathBuf {

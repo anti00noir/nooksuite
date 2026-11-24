@@ -1,0 +1,10 @@
+[package]
+name = "nooksuite-library"
+version = "0.1.0"
+description = "On-disk NookSuite library (format v1) shared by NookEdit and the native host"
+authors = ["NookSuite"]
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

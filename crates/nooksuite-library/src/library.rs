@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::hash::{BuildHasher, Hasher};
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -82,8 +82,8 @@ pub fn create_library_file(now: &str) -> LibraryFile {
 
 /// Parse and validate a library index. Mirrors `parseLibraryFile` in core.
 pub fn parse_library(text: &str) -> Result<LibraryFile, String> {
-    let file: LibraryFile =
-        serde_json::from_str(text).map_err(|error| format!("library.json is not valid: {error}"))?;
+    let file: LibraryFile = serde_json::from_str(text)
+        .map_err(|error| format!("library.json is not valid: {error}"))?;
 
     if file.schema_version == 0 {
         return Err("Unsupported library schema version: 0.".to_string());
@@ -235,6 +235,11 @@ impl Library {
         &self.file
     }
 
+    /// The library root on disk.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     pub fn snapshot(&self) -> LibrarySnapshot {
         let mut records: Vec<Record> = self.file.records.values().cloned().collect();
         records.sort_by(|a, b| {
@@ -265,14 +270,7 @@ impl Library {
             .and_then(|name| name.to_str())
             .unwrap_or("untitled");
 
-        let existing: Vec<String> = self
-            .file
-            .records
-            .values()
-            .map(|record| record.name.clone())
-            .collect();
-        let name = unique_name(&existing, requested)?;
-
+        let name = self.unique_document_name(requested)?;
         let id = self.new_document_id();
         let directory = self.root.join(DOCUMENTS_DIR).join(&id);
         fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
@@ -280,18 +278,73 @@ impl Library {
         let destination = directory.join(&name);
         if let Err(error) = fs::copy(source, &destination) {
             let _ = fs::remove_dir_all(&directory);
+            return Err(format!("Could not copy {}: {error}", source.display()));
+        }
+
+        self.finish_import(
+            id,
+            name,
+            guess_media_type(requested).to_string(),
+            metadata.len(),
+        )
+    }
+
+    /// Store bytes that came from somewhere other than a file on disk.
+    ///
+    /// The native messaging host uses this for files NookBin sends over the
+    /// wire. The caller's media type wins when it is non-empty; otherwise the
+    /// name decides, exactly like `import_path`.
+    pub fn import_bytes(
+        &mut self,
+        requested: &str,
+        media_type: Option<&str>,
+        bytes: &[u8],
+    ) -> Result<Record, String> {
+        let name = self.unique_document_name(requested)?;
+        let id = self.new_document_id();
+        let directory = self.root.join(DOCUMENTS_DIR).join(&id);
+        fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+
+        let destination = directory.join(&name);
+        if let Err(error) = fs::write(&destination, bytes) {
+            let _ = fs::remove_dir_all(&directory);
             return Err(format!(
-                "Could not copy {}: {error}",
-                source.display()
+                "Could not write {}: {error}",
+                destination.display()
             ));
         }
 
+        let media_type = media_type
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| guess_media_type(requested).to_string());
+
+        self.finish_import(id, name, media_type, bytes.len() as u64)
+    }
+
+    fn unique_document_name(&self, requested: &str) -> Result<String, String> {
+        let existing: Vec<String> = self
+            .file
+            .records
+            .values()
+            .map(|record| record.name.clone())
+            .collect();
+        unique_name(&existing, requested)
+    }
+
+    fn finish_import(
+        &mut self,
+        id: String,
+        name: String,
+        media_type: String,
+        size: u64,
+    ) -> Result<Record, String> {
         let now = now_iso8601();
         let record = Record {
             id: id.clone(),
             name: name.clone(),
-            media_type: guess_media_type(requested).to_string(),
-            size: metadata.len(),
+            media_type,
+            size,
             path: record_path(&id, &name),
             created_at: now.clone(),
             updated_at: now.clone(),
@@ -302,7 +355,7 @@ impl Library {
 
         if let Err(error) = self.save() {
             self.file.records.remove(&id);
-            let _ = fs::remove_dir_all(&directory);
+            let _ = fs::remove_dir_all(self.root.join(DOCUMENTS_DIR).join(&id));
             return Err(error);
         }
 
@@ -335,9 +388,8 @@ impl Library {
             if let Some(parent) = next_absolute.parent() {
                 fs::create_dir_all(parent).map_err(|error| error.to_string())?;
             }
-            fs::rename(&old_path, &next_absolute).map_err(|error| {
-                format!("Could not rename {}: {error}", old_path.display())
-            })?;
+            fs::rename(&old_path, &next_absolute)
+                .map_err(|error| format!("Could not rename {}: {error}", old_path.display()))?;
         }
 
         let now = now_iso8601();
@@ -375,12 +427,7 @@ impl Library {
         match fs::remove_dir_all(&directory) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(format!(
-                    "Could not delete {}: {error}",
-                    directory.display()
-                ))
-            }
+            Err(error) => return Err(format!("Could not delete {}: {error}", directory.display())),
         }
 
         self.file.records.remove(id);
@@ -410,12 +457,40 @@ impl Library {
         fs::read(&path).map_err(|error| format!("Could not read {}: {error}", path.display()))
     }
 
+    /// A slice of a record's file, read without loading the rest.
+    ///
+    /// The native messaging host uses this to stream a document to the
+    /// extension in chunks small enough for Chrome's 1 MB host-to-browser cap.
+    pub fn read_range(&self, id: &str, offset: u64, length: usize) -> Result<Vec<u8>, String> {
+        let record = self.record(id)?;
+        let path = self.root.join(&record.path);
+
+        let mut file = fs::File::open(&path)
+            .map_err(|error| format!("Could not read {}: {error}", path.display()))?;
+        file.seek(SeekFrom::Start(offset))
+            .map_err(|error| format!("Could not read {}: {error}", path.display()))?;
+
+        let mut buffer = vec![0u8; length];
+        let mut filled = 0;
+
+        while filled < length {
+            match file.read(&mut buffer[filled..]) {
+                Ok(0) => break,
+                Ok(read) => filled += read,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(format!("Could not read {}: {error}", path.display())),
+            }
+        }
+
+        buffer.truncate(filled);
+        Ok(buffer)
+    }
+
     /// A record's file as UTF-8 text.
     pub fn read_text(&self, id: &str) -> Result<String, String> {
         let record = self.record(id)?;
         let bytes = self.read_bytes(id)?;
-        String::from_utf8(bytes)
-            .map_err(|_| format!("{} is not UTF-8 text.", record.name))
+        String::from_utf8(bytes).map_err(|_| format!("{} is not UTF-8 text.", record.name))
     }
 
     /// Replace a text document's contents and update its size and timestamp.
@@ -456,18 +531,12 @@ impl Library {
     /// Write a record to `destination`. Text documents pass the current editor
     /// contents so an export never depends on a prior save; everything else is
     /// copied from disk.
-    pub fn export(
-        &self,
-        id: &str,
-        destination: &Path,
-        text: Option<&str>,
-    ) -> Result<(), String> {
+    pub fn export(&self, id: &str, destination: &Path, text: Option<&str>) -> Result<(), String> {
         let record = self.record(id)?;
         let bytes = match text {
             Some(text) => text.as_bytes().to_vec(),
-            None => fs::read(self.root.join(&record.path)).map_err(|error| {
-                format!("Could not read {}: {error}", record.name)
-            })?,
+            None => fs::read(self.root.join(&record.path))
+                .map_err(|error| format!("Could not read {}: {error}", record.name))?,
         };
 
         atomic_write(destination, &bytes)
@@ -524,8 +593,10 @@ pub fn normalize_name(name: &str) -> String {
 }
 
 fn is_illegal_name_char(character: char) -> bool {
-    matches!(character, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
-        || (character as u32) < 0x20
+    matches!(
+        character,
+        '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
+    ) || (character as u32) < 0x20
 }
 
 fn collapse_whitespace(value: &str) -> String {
@@ -563,9 +634,7 @@ fn truncate_utf16(value: &str, max: usize) -> &str {
 
 fn split_extension(name: &str) -> (&str, &str) {
     match name.rfind('.') {
-        Some(index) if index > 0 && index + 1 < name.len() => {
-            (&name[..index], &name[index..])
-        }
+        Some(index) if index > 0 && index + 1 < name.len() => (&name[..index], &name[index..]),
         _ => (name, ""),
     }
 }
@@ -615,15 +684,11 @@ pub fn guess_media_type(name: &str) -> &'static str {
         "avif" => "image/avif",
         "bmp" => "image/bmp",
         "doc" => "application/msword",
-        "docx" => {
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        }
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "xls" => "application/vnd.ms-excel",
         "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "ppt" => "application/vnd.ms-powerpoint",
-        "pptx" => {
-            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        }
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "zip" => "application/zip",
         _ => DEFAULT_MEDIA_TYPE,
     }
@@ -892,14 +957,21 @@ mod tests {
             "report (2).pdf"
         );
         assert_eq!(
-            unique_name(&["report.pdf".into(), "report (2).pdf".into()], "report.pdf").unwrap(),
+            unique_name(
+                &["report.pdf".into(), "report (2).pdf".into()],
+                "report.pdf"
+            )
+            .unwrap(),
             "report (3).pdf"
         );
         assert_eq!(
             unique_name(&["REPORT.PDF".into()], "report.pdf").unwrap(),
             "report (2).pdf"
         );
-        assert_eq!(unique_name(&["notes".into()], "notes").unwrap(), "notes (2)");
+        assert_eq!(
+            unique_name(&["notes".into()], "notes").unwrap(),
+            "notes (2)"
+        );
     }
 
     #[test]
@@ -973,7 +1045,7 @@ mod tests {
 
     #[test]
     fn parses_the_shared_fixture() {
-        let text = include_str!("../../../../../packages/core/tests/fixtures/library-v1.json");
+        let text = include_str!("../../../packages/core/tests/fixtures/library-v1.json");
         let library = parse_library(text).unwrap();
 
         assert_eq!(library.library_id, "lib_fixture001");
@@ -1080,7 +1152,48 @@ mod tests {
         drop(library);
         let reopened = Library::open_or_create(&root).unwrap();
         assert_eq!(reopened.read_text(&record.id).unwrap(), edited);
-        assert_eq!(reopened.file().records[&record.id].size, edited.len() as u64);
+        assert_eq!(
+            reopened.file().records[&record.id].size,
+            edited.len() as u64
+        );
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn imports_bytes_with_a_caller_media_type() {
+        let root = temp_root("bytes");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+
+        let mut library = Library::open_or_create(&root).unwrap();
+        let payload = b"# from the wire\n";
+
+        let record = library
+            .import_bytes("wire.md", Some("text/markdown"), payload)
+            .unwrap();
+
+        assert_eq!(record.name, "wire.md");
+        assert_eq!(record.media_type, "text/markdown");
+        assert_eq!(record.size, payload.len() as u64);
+        assert_eq!(fs::read(root.join(&record.path)).unwrap(), payload);
+        assert_eq!(library.read_text(&record.id).unwrap(), "# from the wire\n");
+
+        // An empty media type falls back to the extension.
+        let guessed = library
+            .import_bytes("second.md", Some(""), b"# two\n")
+            .unwrap();
+        assert_eq!(guessed.media_type, "text/markdown");
+
+        // Duplicate names are still made unique.
+        let duplicate = library.import_bytes("wire.md", None, b"again").unwrap();
+        assert_eq!(duplicate.name, "wire (2).md");
+
+        // The index on disk is valid after a reopen.
+        drop(library);
+        let reopened = Library::open_or_create(&root).unwrap();
+        assert_eq!(reopened.file().records.len(), 3);
+        assert_eq!(reopened.read_bytes(&record.id).unwrap(), payload);
 
         fs::remove_dir_all(&root).unwrap();
     }
