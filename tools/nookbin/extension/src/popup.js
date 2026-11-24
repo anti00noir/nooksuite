@@ -1,7 +1,10 @@
-import { getRecordStorage } from '@nooksuite/core';
+import { createNativeLibrary, getRecordStorage } from '@nooksuite/core';
+
+import { classifyNativeFailure, createNativeTransport } from './native-host.js';
 
 const STORE_NAME = 'my-files';
-const IDLE_STATUS = 'Local only';
+const IDLE_DISK = 'NookSuite library';
+const IDLE_LOCAL = 'Local only';
 
 // Chrome extension messages are JSON-serialized and have a size limit. Base64
 // makes the payload roughly a third larger, so keep this conservative.
@@ -81,6 +84,7 @@ let searchQuery = '';
 let filterMode = 'all';
 let sortMode = 'name';
 let statusTimer = null;
+let idleStatus = IDLE_LOCAL;
 
 function setStatus(message, type = '') {
   if (statusTimer) {
@@ -88,13 +92,13 @@ function setStatus(message, type = '') {
     statusTimer = null;
   }
 
-  statusEl.textContent = message || IDLE_STATUS;
+  statusEl.textContent = message || idleStatus;
   statusEl.title = message || '';
   localStatus.dataset.state = type || 'idle';
 
   if (message && type === 'success') {
     statusTimer = window.setTimeout(() => {
-      statusEl.textContent = IDLE_STATUS;
+      statusEl.textContent = idleStatus;
       statusEl.title = '';
       localStatus.dataset.state = 'idle';
       statusTimer = null;
@@ -124,12 +128,36 @@ function isImageFile(record) {
 }
 
 async function init() {
+  const native = createNativeLibrary(createNativeTransport());
+  let warning = null;
+
   try {
-    store = await getRecordStorage({ name: STORE_NAME });
-    await refreshList();
+    const info = await native.ping();
+    store = native;
+    idleStatus = IDLE_DISK;
+    storageSummary.title = `Stored in ${info.library.root}`;
   } catch (error) {
-    setStatus(`Could not open file storage: ${error.message}`, 'error');
+    const failure = classifyNativeFailure(error);
+
+    try {
+      store = await getRecordStorage({ name: STORE_NAME });
+      storageSummary.title = 'Stored in this browser (IndexedDB)';
+    } catch (fallbackError) {
+      setStatus(`Could not open file storage: ${fallbackError.message}`, 'error');
+      return;
+    }
+
+    // A missing host is the expected state before the installer runs, so the
+    // footer just says "Local only". Anything else is worth a visible warning.
+    if (failure.kind !== 'missing') {
+      warning = `NookSuite library unavailable: ${failure.message}. Using browser storage.`;
+    }
   }
+
+  if (warning) setStatus(warning, 'error');
+  else statusEl.textContent = idleStatus;
+
+  await refreshList();
 }
 
 async function addFiles(fileListLike) {
