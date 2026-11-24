@@ -5,8 +5,8 @@ between them: the native app reads and writes it directly, and the extension
 uses the same record shape for its IndexedDB fallback.
 
 The format lives in `@nooksuite/core` (`packages/core/src/library/`). The native
-app mirrors it in `tools/nookedit/desktop/src-tauri/src/library.rs`, and both
-sides parse the shared fixture
+side lives in `crates/nooksuite-library/src/library.rs` and is shared by the
+desktop app and the native messaging host. Both sides parse the shared fixture
 `packages/core/tests/fixtures/library-v1.json` in their tests.
 
 ## Layout
@@ -26,9 +26,10 @@ sides parse the shared fixture
   the way in Explorer and on Unix.
 - `documents/<id>/` is the record's folder. Bytes keep their original name, so
   a user browsing the folder sees readable files.
-- The native app owns the library today; the native messaging host will reuse
-  the same implementation. Writes go through a temp-then-rename for
-  `library.json`, so a reader never observes a partial index.
+- The shared Rust crate `crates/nooksuite-library` owns the library; NookEdit
+  and the native messaging host both link it. Writes go through a
+  temp-then-rename for `library.json`, so a reader never observes a partial
+  index.
 
 ## `library.json`
 
@@ -100,7 +101,7 @@ lib_3p0a8s5d2w
 
 They are random rather than sequential so two devices importing the same file
 cannot mint the same id for different documents. A collision is still possible
-in principle; the native host must check for an existing folder before
+in principle; the native implementation checks for an existing id before
 committing a new record.
 
 ## Names
@@ -138,9 +139,9 @@ same name replaced the first.
 
 ## IndexedDB fallback
 
-When NookEdit is not installed, NookBin keeps using IndexedDB in the extension
-origin. It stores the same records, so the UI and the record model do not
-diverge:
+When the native host is not installed, NookBin falls back to IndexedDB in the
+extension origin. It stores the same records, so the UI and the record model do
+not diverge:
 
 - Database: `my-files` (unchanged, so existing data is found)
 - Version: `2`

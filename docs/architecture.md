@@ -9,14 +9,19 @@ to those roots.
 | File | Responsibility |
 | --- | --- |
 | `tools/nookbin/extension/src/manifest.json` | Declares the service worker, content scripts, permissions, keyboard shortcut, web-accessible panel files, and host access. |
-| `background.js` | Handles toolbar clicks and the **Alt+Shift+N** shortcut, toggles the in-page panel, injects the content script into older tabs, and opens a standalone fallback window on restricted pages. |
+| `background.js` | Handles toolbar clicks and the **Alt+Shift+N** shortcut, toggles the in-page panel, injects the content script into older tabs, opens a standalone fallback window on restricted pages, and owns the single native messaging connection. |
 | `content.js` | Owns the floating panel host, handles dragging/docking/closing, keeps the panel above fullscreen content, and delivers files to the page. |
 | `popup/popup.html` | Panel UI: header, library heading, search and filters, stored-file list, empty state, drop guide, and storage footer. |
 | `popup/popup.css` | Responsive panel layout and charcoal theme styles. |
-| `popup.js` | Handles drag/drop and file selection, reads and writes storage, filters and sorts the file list, sends the selected file to the active tab, and talks to the panel host. |
+| `popup.js` | Handles drag/drop and file selection, filters and sorts the file list, sends the selected file to the active tab, and talks to the panel host. |
+| `native-host.js` | Panel-side client for the background's native messaging bridge, including failure classification. |
 | `packages/core/src/panel-position.js` | Pure geometry helpers for sizing the panel, docking it to the right, and keeping it inside the viewport. |
-| `packages/core/src/file-storage.js` | File storage interface with shared input validation. |
-| `packages/core/src/backends/idb-file-storage.js` | IndexedDB implementation of that interface. |
+| `packages/core/src/record-storage.js` | Record storage interface with shared input validation. |
+| `packages/core/src/backends/idb-record-storage.js` | IndexedDB implementation, used when the native host is unavailable. |
+| `packages/core/src/native/native-client.js` | Correlates requests and responses over one native messaging port. |
+| `packages/core/src/native/native-library.js` | Record-store adapter for the native host, with chunked reads and base64 transfer. |
+| `crates/nooksuite-library/` | Shared Rust implementation of format v1, used by NookEdit and the native host. |
+| `tools/nookedit/host/` | Native messaging host: stdio framing, request dispatch, and the browser installer. |
 | `fonts/` | Bundled IBM Plex Mono Web Fonts (SIL Open Font License). |
 
 ### Bundling
@@ -58,8 +63,16 @@ native library and the extension can share callers:
 - `backends/idb-record-storage.js` implements the backend with IndexedDB.
   Records and bytes live in separate object stores, so listing a library never
   reads file contents.
+- `native/native-library.js` implements the same surface over the native
+  messaging protocol. The Rust host applies the shared rules, so the adapter
+  only moves bytes.
 
-Stored documents live in the extension's own IndexedDB:
+The panel asks for the native library first. When the host is installed it
+reads and writes the on-disk library; otherwise it falls back to the
+extension's own IndexedDB. The footer names the active source ("NookSuite
+library" or "Local only").
+
+Fallback documents live in the extension's own IndexedDB:
 
 - Database: `my-files`
 - Database version: `2`
@@ -71,14 +84,15 @@ Version 1 of the database keyed files by name in a single `files` store.
 Version 2 migrates those entries into records on first open; the migration is
 described in [`docs/library-format.md`](library-format.md#migrating-from-version-1).
 
-This is extension-origin storage. Content scripts run in the page's origin and therefore cannot read it directly; the panel is responsible for reading files and passing them to the page.
+This is extension-origin storage. Content scripts run in the page's origin and therefore cannot read it directly; the panel is responsible for reading files and passing them to the page. Because it is a fallback, switching to the native library does not migrate these records automatically.
 
 ### Shared library with NookEdit
 
-The suite plan is for NookBin and NookEdit to read and write one on-disk
-library (`Documents\NookSuite` by default, user-configurable). Phase 0 tested
-whether the extension could own that folder directly with the File System
-Access API. It cannot, so the library is owned by the native app instead.
+NookBin and NookEdit read and write one on-disk library
+(`Documents\NookSuite` by default, user-configurable). Phase 0 tested whether
+the extension could own that folder directly with the File System Access API.
+It cannot, so the library is owned by native code instead: the desktop app
+writes it, and the native messaging host gives NookBin the same access.
 
 Evidence is in [`docs/spikes/p0/README.md`](spikes/p0/README.md) and the
 harness in `spikes/p0/fsa-extension`:
@@ -99,8 +113,8 @@ Consequences:
 - The host process owns the library: it creates `.nooksuite/`, allocates
   document IDs, performs atomic temp-then-rename writes, and streams bytes.
 - No permission prompts, no extra tab, and no dependency on the page context.
-- A File System Access "folder mode" is out of scope. Where the native app is
-  not installed, the export/import bridge remains the fallback.
+- A File System Access "folder mode" is out of scope. Where the host is not
+  installed, the panel falls back to IndexedDB.
 
 The on-disk layout the host is responsible for:
 
@@ -115,26 +129,28 @@ The on-disk layout the host is responsible for:
 
 #### Native implementation (Phase 2)
 
-NookEdit implements that layout in `tools/nookedit/desktop/src-tauri/src/library.rs`:
+NookEdit implements that layout in `crates/nooksuite-library/src/library.rs`:
 
 - `Library::open_or_create` creates `.nooksuite/` and `documents/` and loads or
   writes `library.json`.
 - `import_path` copies a file into `documents/<id>/`, normalizes its name, and
-  saves the index.
+  saves the index; `import_bytes` does the same for bytes that arrive over the
+  wire.
 - `rename` moves the file and updates the record; `remove` deletes the folder
   and the record.
-- `read_text` / `read_bytes` read a record; `save_text` replaces a text file
-  atomically and updates its size and `updatedAt`; `export` writes a copy to a
-  chosen destination.
+- `read_text` / `read_bytes` read a record; `read_range` streams a slice for the
+  host; `save_text` replaces a text file atomically and updates its size and
+  `updatedAt`; `export` writes a copy to a chosen destination.
 - `atomic_write` writes through `library.json.tmp` and renames over the index.
 - Ids, name normalization, media-type inference, and timestamp validation
   mirror `packages/core/src/library/`.
 
-Tauri commands (`open_library`, `import_documents`, `rename_document`,
-`remove_document`, `read_document_text`, `read_document_bytes`,
-`save_document`, `export_document`) wrap those operations. The remembered
-library path lives in `settings.json` in the app config directory, so the app
-reopens the last library on launch.
+The crate is shared by the desktop app and the native host, so there is one
+implementation of the format. Tauri commands (`open_library`, `import_documents`,
+`rename_document`, `remove_document`, `read_document_text`,
+`read_document_bytes`, `save_document`, `export_document`) wrap those
+operations. The remembered library path lives in `settings.json` in the app
+config directory, so the app reopens the last library on launch.
 
 `read_document_bytes` returns `tauri::ipc::Response`, so large files reach the
 webview as an `ArrayBuffer` instead of a JSON array of numbers.
@@ -161,9 +177,31 @@ guarded yet.
 The editor, PDF viewer, and Markdown renderer are lazy-loaded; the library
 screen boots without them.
 
-The same module is intended to back the native messaging host in Phase 4, so
-the extension and the app do not grow two implementations. Until then, the
-extension keeps using the IndexedDB fallback described above.
+#### Native messaging (Phase 4)
+
+The host in `tools/nookedit/host` is a thin stdio layer over the shared crate:
+
+- Chrome starts it when the extension calls
+  `chrome.runtime.connectNative('dev.nooksuite.host')`. The registration is
+  written by `scripts/install.mjs`.
+- Requests and responses are a 4-byte little-endian length followed by one
+  UTF-8 JSON object. The ops are `ping`, `list`, `import`, `read`, `rename`, and
+  `remove`.
+- Reads are chunked: the host returns at most 512 KB of raw bytes per message,
+  because Chrome caps host-to-browser messages at 1 MB. Imports are one message
+  and the extension caps them at 32 MB.
+- The background service worker owns the single port, so every panel shares one
+  host process and one writer. The panel sends request payloads over
+  `chrome.runtime.sendMessage`.
+- The host resolves the library root from `NOOKSUITE_LIBRARY_ROOT`, then the
+  `libraryPath` in `settings.json`, then `Documents\NookSuite`. It never writes
+  settings; NookEdit owns the picker.
+- Diagnostics go to stderr; stdout carries only protocol frames.
+
+The host is registered for Chrome and Edge under the current user. Because an
+unpacked extension's id is derived from its folder path, the installer reads
+the id from the browser's `Preferences` files and lists it in
+`allowed_origins`. Re-run the installer if the extension moves.
 
 A shared fixture, `packages/core/tests/fixtures/library-v1.json`, is parsed by
 both the JavaScript and Rust test suites. A field-name or validation change
@@ -232,9 +270,10 @@ Chrome does not allow content scripts on pages such as `chrome://` URLs, the Chr
 
 | Permission | Why it is needed |
 | --- | --- |
+| `nativeMessaging` | Talk to the NookSuite host that owns the on-disk library. |
 | `scripting` | Re-inject the content script into tabs that do not have it and detect restricted pages. |
 | `storage` | Remember the floating panel position and the fallback window ID. |
-| `unlimitedStorage` | Allow IndexedDB to hold document-sized files. |
+| `unlimitedStorage` | Allow the IndexedDB fallback to hold document-sized files. |
 | `<all_urls>` | Run the content script and inject into the active page. |
 
 The extension requires Chrome 114 or newer because the floating panel relies on the HTML popover API.
@@ -245,8 +284,13 @@ The extension requires Chrome 114 or newer because the floating panel relies on 
 2. Open `chrome://extensions`.
 3. Enable **Developer mode**.
 4. Click **Load unpacked** and select the `tools/nookbin/extension/dist/` folder.
-5. After changing the code, reload the extension from the extensions page.
-6. Already-open tabs can usually recover automatically through the injection fallback, but refreshing the page is the cleanest option.
+5. Optionally install the native host:
+   `npm run host:install --workspace @nooksuite/host`. The installer finds the
+   loaded extension id, copies the host into `%LOCALAPPDATA%\NookSuite\host`,
+   and registers it with Chrome and Edge. Pass `-- --id=<id>` if detection
+   fails.
+6. After changing the code, reload the extension from the extensions page.
+7. Already-open tabs can usually recover automatically through the injection fallback, but refreshing the page is the cleanest option.
 
 ### Current limitations
 
@@ -256,10 +300,15 @@ This is a proof of concept, so the following are intentionally simple:
 - Iframes, shadow DOM, and custom canvas-based upload widgets are not specifically handled.
 - The upload-area fallback is a heuristic and may not work on every site.
 - Synthetic events may be ignored by pages that require trusted user input.
-- Files over 32 MB cannot currently be injected.
+- Files over 32 MB cannot currently be injected, and the disk library refuses
+  imports over 32 MB.
 - Chrome blocks extensions on pages such as `chrome://`, the Chrome Web Store, and the PDF viewer. Those pages use the standalone fallback window instead.
 - The in-page panel closes when the page navigates; reopen it from the toolbar or shortcut.
-- Uninstalling the extension deletes its IndexedDB contents.
+- The disk library is used only when the host is installed; otherwise the panel
+  stays on IndexedDB and the footer says "Local only". Records in the two
+  stores are not migrated into each other.
+- Uninstalling the extension deletes its IndexedDB fallback. Documents in the
+  on-disk library are untouched.
 - `file://` pages require **Allow access to file URLs** in the extension details page.
 
 The core storage, messaging, and injection flow is working; the areas above are the main candidates for future work.

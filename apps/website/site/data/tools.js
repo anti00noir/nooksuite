@@ -10,10 +10,10 @@ export const tools = [
     name: 'NookBin',
     tagline: 'Keep the documents you reuse one keystroke away.',
     description:
-      'A floating panel in your browser that stores the files you send often and drops them straight into any page\u2019s upload field \u2014 no file-picker round trip.',
+      'A floating panel in your browser that stores the files you send often and drops them straight into any page\u2019s upload field \u2014 no file-picker round trip. Uses the same on-disk library as NookEdit when its native host is installed.',
     status: 'shipped',
     version: '0.2.0',
-    targets: ['Chrome (MV3)'],
+    targets: ['Chrome (MV3)', 'Native host'],
   },
   {
     id: 'nookedit',

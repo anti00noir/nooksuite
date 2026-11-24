@@ -7,7 +7,9 @@ PDF page operations and annotations come later.
 
 The on-disk format is specified in
 [`docs/library-format.md`](../../../docs/library-format.md). The Rust
-implementation in `src-tauri/src/library.rs` is the native side; the JavaScript
+implementation in
+[`crates/nooksuite-library`](../../../crates/nooksuite-library) is the native
+side, shared with the native messaging host that NookBin uses. The JavaScript
 implementation in `@nooksuite/core` is the format spec and the IndexedDB
 fallback used by NookBin.
 
@@ -87,10 +89,12 @@ npm run spike:headless -- --debug          # force the debug build
 
 ## Implementation notes
 
-- `src-tauri/src/library.rs` — format v1: record validation, name
-  normalization, ids, timestamps, atomic writes, and import/rename/remove plus
-  text reads, text saves, and exports.
-- `src-tauri/src/settings.rs` — `settings.json` in the Tauri config directory.
+- `../../../crates/nooksuite-library/src/library.rs` — format v1: record
+  validation, name normalization, ids, timestamps, atomic writes, and
+  import/rename/remove plus text reads, text saves, exports, and ranged reads.
+  Shared with the native messaging host.
+- `../../../crates/nooksuite-library/src/settings.rs` — `settings.json` in the
+  app config directory; the host reads the same file.
 - `src-tauri/src/lib.rs` — Tauri commands (`open_library`, `import_documents`,
   `rename_document`, `remove_document`, `read_document_text`,
   `read_document_bytes`, `save_document`, `export_document`,
@@ -125,14 +129,16 @@ desktop/
 ├── scripts/                # PDF fixture generator, headless launcher, icon.svg
 ├── src-tauri/
 │   ├── src/
-│   │   ├── lib.rs          # Tauri commands and headless checks
-│   │   ├── library.rs      # on-disk format v1
-│   │   └── settings.rs     # remembered library path
+│   │   └── lib.rs          # Tauri commands and headless checks
 │   └── icons/              # generated from scripts/icon.svg
 ├── index.html
 ├── vite.config.ts
 └── tsconfig.json
 ```
+
+The format and settings code it links live one level up the repository, in
+`crates/nooksuite-library/`. The host that serves NookBin is in
+`tools/nookedit/host/`.
 
 ## Icons
 
