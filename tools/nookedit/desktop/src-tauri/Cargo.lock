@@ -1990,6 +1990,7 @@ name = "nookedit"
 version = "0.1.0"
 dependencies = [
  "nooksuite-library",
+ "percent-encoding",
  "serde",
  "serde_json",
  "tauri",

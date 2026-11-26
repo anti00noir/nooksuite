@@ -49,10 +49,23 @@ export const api = {
     invoke<ArrayBuffer>('read_document_bytes', { root, id }),
   saveDocument: (root: string, id: string, text: string) =>
     invoke<DocumentRecord>('save_document', { root, id, text }),
+  saveDocumentBytes: (root: string, id: string, bytes: Uint8Array) =>
+    invoke<DocumentRecord>('save_document_bytes', bytes, {
+      headers: {
+        'x-nooksuite-root': encodeURIComponent(root),
+        'x-nooksuite-id': encodeURIComponent(id),
+      },
+    }),
   exportDocument: (
     root: string,
     id: string,
     destination: string,
     text: string | null,
   ) => invoke<void>('export_document', { root, id, destination, text }),
+  exportDocumentBytes: (destination: string, bytes: Uint8Array) =>
+    invoke<void>('export_bytes', bytes, {
+      headers: {
+        'x-nooksuite-destination': encodeURIComponent(destination),
+      },
+    }),
 };

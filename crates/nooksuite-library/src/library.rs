@@ -493,18 +493,21 @@ impl Library {
         String::from_utf8(bytes).map_err(|_| format!("{} is not UTF-8 text.", record.name))
     }
 
-    /// Replace a text document's contents and update its size and timestamp.
-    /// If the index cannot be written, the old bytes are restored.
-    pub fn save_text(&mut self, id: &str, text: &str) -> Result<Record, String> {
+    /// Replace a document's bytes and update its size and timestamp.
+    ///
+    /// This is the binary-safe counterpart of `save_text`; NookEdit uses it to
+    /// write a PDF rewritten by pdf-lib back into the library. If the index
+    /// cannot be written, the old bytes are restored.
+    pub fn save_bytes(&mut self, id: &str, bytes: &[u8]) -> Result<Record, String> {
         let current = self.record(id)?;
         let path = self.root.join(&current.path);
         let previous = fs::read(&path).ok();
 
-        atomic_write(&path, text.as_bytes())?;
+        atomic_write(&path, bytes)?;
 
         let now = now_iso8601();
         let record = Record {
-            size: text.len() as u64,
+            size: bytes.len() as u64,
             updated_at: now.clone(),
             ..current.clone()
         };
@@ -526,6 +529,12 @@ impl Library {
         }
 
         Ok(record)
+    }
+
+    /// Replace a text document's contents and update its size and timestamp.
+    /// If the index cannot be written, the old bytes are restored.
+    pub fn save_text(&mut self, id: &str, text: &str) -> Result<Record, String> {
+        self.save_bytes(id, text.as_bytes())
     }
 
     /// Write a record to `destination`. Text documents pass the current editor
@@ -1156,6 +1165,34 @@ mod tests {
             reopened.file().records[&record.id].size,
             edited.len() as u64
         );
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn saves_binary_bytes_and_persists_the_new_size() {
+        let root = temp_root("bytes-save");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+
+        let source = root.join("scan.pdf");
+        fs::write(&source, b"%PDF-1.4 first").unwrap();
+
+        let mut library = Library::open_or_create(&root).unwrap();
+        let record = library.import_path(&source).unwrap();
+
+        // Include bytes that are not valid UTF-8 so a text-only path would fail.
+        let payload = [0x25, 0x50, 0x44, 0x46, 0xff, 0x00, 0x80];
+        let saved = library.save_bytes(&record.id, &payload).unwrap();
+
+        assert_eq!(saved.size, payload.len() as u64);
+        assert_eq!(library.read_bytes(&record.id).unwrap(), payload);
+        assert!(saved.updated_at >= record.updated_at);
+
+        drop(library);
+        let reopened = Library::open_or_create(&root).unwrap();
+        assert_eq!(reopened.read_bytes(&record.id).unwrap(), payload);
+        assert_eq!(reopened.file().records[&record.id].size, payload.len() as u64);
 
         fs::remove_dir_all(&root).unwrap();
     }

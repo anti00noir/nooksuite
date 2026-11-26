@@ -116,6 +116,58 @@ fn save_document(root: String, id: String, text: String) -> Result<Record, Strin
     library.save_text(&id, &text)
 }
 
+const ROOT_HEADER: &str = "x-nooksuite-root";
+const ID_HEADER: &str = "x-nooksuite-id";
+const DESTINATION_HEADER: &str = "x-nooksuite-destination";
+
+/// Read a request header as text. Raw-body commands pass their metadata here,
+/// because the body itself is the binary payload.
+fn header_value<'a>(request: &'a tauri::ipc::Request<'_>, name: &str) -> Result<&'a str, String> {
+    request
+        .headers()
+        .get(name)
+        .ok_or_else(|| format!("Missing {name} header."))?
+        .to_str()
+        .map_err(|_| format!("Invalid {name} header."))
+}
+
+/// Undo the `encodeURIComponent` used by the frontend so non-ASCII paths work.
+fn decode_header_value(value: &str) -> Result<String, String> {
+    percent_encoding::percent_decode_str(value)
+        .decode_utf8()
+        .map(|decoded| decoded.into_owned())
+        .map_err(|_| "Header is not valid UTF-8 after percent-decoding.".to_string())
+}
+
+fn raw_body<'a>(request: &'a tauri::ipc::Request<'_>) -> Result<&'a [u8], String> {
+    match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => Ok(bytes),
+        _ => Err("Expected a raw byte body.".to_string()),
+    }
+}
+
+/// Save bytes that the frontend built (currently a rewritten PDF). Metadata
+/// travels in headers because the request body is the raw document.
+#[tauri::command]
+fn save_document_bytes(request: tauri::ipc::Request<'_>) -> Result<Record, String> {
+    let root = decode_header_value(header_value(&request, ROOT_HEADER)?)?;
+    let id = decode_header_value(header_value(&request, ID_HEADER)?)?;
+    let bytes = raw_body(&request)?;
+
+    let mut library = Library::open_or_create(Path::new(&root))?;
+    library.save_bytes(&id, bytes)
+}
+
+/// Write rewritten bytes to a path the user picked in the export dialog.
+#[tauri::command]
+fn export_bytes(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let destination = decode_header_value(header_value(&request, DESTINATION_HEADER)?)?;
+    let bytes = raw_body(&request)?;
+
+    nooksuite_library::library::atomic_write(Path::new(&destination), bytes)
+        .map_err(|error| format!("Could not write {destination}: {error}"))
+}
+
 #[tauri::command]
 fn export_document(
     root: String,
@@ -219,7 +271,9 @@ pub fn run() {
             read_document_text,
             read_document_bytes,
             save_document,
+            save_document_bytes,
             export_document,
+            export_bytes,
             headless_config,
             headless_library_check,
             save_report,
@@ -232,6 +286,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nooksuite_library::library;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     fn temp_root(label: &str) -> PathBuf {
@@ -241,6 +296,16 @@ mod tests {
             "nookedit-headless-{label}-{}-{serial}",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn decodes_percent_encoded_headers() {
+        assert_eq!(
+            decode_header_value("C%3A%5CUsers%5CJos%C3%A9%5CNookSuite").unwrap(),
+            "C:\\Users\\José\\NookSuite"
+        );
+        assert_eq!(decode_header_value("doc_abcdefghij").unwrap(), "doc_abcdefghij");
+        assert!(decode_header_value("%FF").is_err());
     }
 
     #[test]
