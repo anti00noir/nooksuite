@@ -75,7 +75,11 @@ export async function runHeadless(config: HeadlessConfig) {
       const bytes = await api.readDocumentBytes(config.libraryRoot, record.id);
       const byteLength = bytes.byteLength;
       const { pdfjs } = await import('./lib/pdf');
-      const loadingTask = pdfjs.getDocument({ data: new Uint8Array(bytes) });
+      // pdf.js transfers the buffer to its worker, so give it a copy and keep
+      // the original for the page-operation check below.
+      const loadingTask = pdfjs.getDocument({
+        data: new Uint8Array(bytes).slice(),
+      });
       const pdf = await loadingTask.promise;
       const page = await pdf.getPage(1);
       const viewport = page.getViewport({ scale: 1 });
@@ -93,6 +97,79 @@ export async function runHeadless(config: HeadlessConfig) {
         byteLength,
         rendered: true,
       };
+
+      // Exercise the same reducer, pdf-lib rewrite, and binary save the UI
+      // uses: rotate, duplicate, move, delete, then undo the delete.
+      try {
+        const { buildPdfBytes, identityPlan, planReducer } = await import(
+          './lib/pdf-pages'
+        );
+
+        let state = {
+          plan: identityPlan(pdf.numPages).slice(0, 3),
+          history: [] as ReturnType<typeof identityPlan>[],
+        };
+        state = planReducer(state, { type: 'rotate', index: 0, delta: 90 });
+        state = planReducer(state, { type: 'duplicate', index: 0 });
+        state = planReducer(state, {
+          type: 'move',
+          index: 1,
+          delta: state.plan.length - 2,
+        });
+        state = planReducer(state, { type: 'remove', index: 1 });
+        const pagesAfterRemove = state.plan.length;
+        state = planReducer(state, { type: 'undo' });
+        const pagesAfterUndo = state.plan.length;
+
+        const plannedBytes = await buildPdfBytes(
+          bytes,
+          state.plan,
+          pdf.numPages,
+        );
+        const savedRecord = await api.saveDocumentBytes(
+          config.libraryRoot,
+          record.id,
+          plannedBytes,
+        );
+        const savedBytes = await api.readDocumentBytes(
+          config.libraryRoot,
+          record.id,
+        );
+
+        const savedTask = pdfjs.getDocument({
+          data: new Uint8Array(savedBytes).slice(),
+        });
+        const savedPdf = await savedTask.promise;
+        const rotations: number[] = [];
+        for (let number = 1; number <= savedPdf.numPages; number += 1) {
+          rotations.push((await savedPdf.getPage(number)).rotate);
+        }
+
+        report.pdfPageOps = {
+          plannedPages: state.plan.length,
+          pagesAfterRemove,
+          pagesAfterUndo,
+          undone: pagesAfterUndo === pagesAfterRemove + 1,
+          savedPages: savedPdf.numPages,
+          rotations,
+          plannedBytes: plannedBytes.byteLength,
+          savedBytes: savedBytes.byteLength,
+          recordSize: savedRecord.size,
+          sizesMatch:
+            savedRecord.size === plannedBytes.byteLength &&
+            savedBytes.byteLength === plannedBytes.byteLength,
+          orderMatches:
+            savedPdf.numPages === 4 &&
+            rotations[0] === 90 &&
+            rotations[1] === 0 &&
+            rotations[2] === 0 &&
+            rotations[3] === 90,
+        };
+
+        await savedTask.destroy();
+      } catch (error) {
+        report.pdfPageOpsError = describeError(error);
+      }
 
       await loadingTask.destroy();
     } catch (error) {

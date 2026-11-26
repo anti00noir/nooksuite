@@ -122,7 +122,30 @@ if (report.pdfViewer) {
   );
 }
 
+if (report.pdfPageOps) {
+  const {
+    plannedPages,
+    pagesAfterRemove,
+    pagesAfterUndo,
+    savedPages,
+    rotations,
+    sizesMatch,
+    orderMatches,
+  } = report.pdfPageOps;
+  console.log(
+    `pdf page ops: plan=${plannedPages} remove=${pagesAfterRemove} undo=${pagesAfterUndo} ` +
+      `savedPages=${savedPages} rotations=[${rotations.join(',')}] ` +
+      `sizesMatch=${sizesMatch} orderMatches=${orderMatches}`,
+  );
+
+  if (!sizesMatch || !orderMatches) {
+    process.exitCode = 1;
+    console.error('pdf page operations check failed');
+  }
+}
+
 if (report.ipcError) console.error(`ipc error: ${report.ipcError}`);
 if (report.pdfViewerError) console.error(`pdf viewer error: ${report.pdfViewerError}`);
+if (report.pdfPageOpsError) console.error(`pdf page ops error: ${report.pdfPageOpsError}`);
 
 console.log(`\nTemp workspace: ${workDir}`);
