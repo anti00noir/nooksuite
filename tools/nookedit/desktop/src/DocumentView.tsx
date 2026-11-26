@@ -4,7 +4,7 @@ import { save as saveFile } from '@tauri-apps/plugin-dialog';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ImagePreview } from './ImagePreview';
 import { MarkdownPreview } from './MarkdownPreview';
-import { PdfViewer } from './PdfViewer';
+import { PdfViewer, type PdfViewerHandle } from './PdfViewer';
 import { TextEditor } from './TextEditor';
 import { api, type DocumentRecord } from './lib/api';
 import {
@@ -27,7 +27,10 @@ type Props = {
 export function DocumentView({ root, record, onBack, onRecordUpdated }: Props) {
   const kind = documentKind(record);
   const editable = isTextKind(kind);
+  const canSave = editable || kind === 'pdf';
 
+  const pdfRef = useRef<PdfViewerHandle>(null);
+  const [pdfDirty, setPdfDirty] = useState(false);
   const [content, setContent] = useState('');
   const [baseline, setBaseline] = useState('');
   const [loading, setLoading] = useState(editable);
@@ -39,7 +42,11 @@ export function DocumentView({ root, record, onBack, onRecordUpdated }: Props) {
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const saving = useRef(false);
 
-  const dirty = editable && !loading && content !== baseline;
+  const dirty = editable
+    ? !loading && content !== baseline
+    : kind === 'pdf'
+      ? pdfDirty
+      : false;
 
   useEffect(() => {
     if (!editable) {
@@ -79,6 +86,24 @@ export function DocumentView({ root, record, onBack, onRecordUpdated }: Props) {
   }, [notice]);
 
   const save = useCallback(async () => {
+    if (busy) return false;
+
+    if (kind === 'pdf') {
+      if (!pdfDirty) return false;
+
+      setBusy(true);
+      setError(null);
+      setNotice(null);
+
+      try {
+        const saved = (await pdfRef.current?.save()) ?? false;
+        if (saved) setNotice('Saved.');
+        return saved;
+      } finally {
+        setBusy(false);
+      }
+    }
+
     if (!editable || loading || saving.current || content === baseline) return false;
 
     saving.current = true;
@@ -98,10 +123,21 @@ export function DocumentView({ root, record, onBack, onRecordUpdated }: Props) {
       saving.current = false;
       setBusy(false);
     }
-  }, [editable, loading, content, baseline, root, record.id, onRecordUpdated]);
+  }, [
+    busy,
+    kind,
+    pdfDirty,
+    editable,
+    loading,
+    content,
+    baseline,
+    root,
+    record.id,
+    onRecordUpdated,
+  ]);
 
   useEffect(() => {
-    if (!editable) return;
+    if (!canSave) return;
 
     function onKeyDown(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
@@ -112,7 +148,7 @@ export function DocumentView({ root, record, onBack, onRecordUpdated }: Props) {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [editable, save]);
+  }, [canSave, save]);
 
   function onContentChange(next: string) {
     setContent(next);
@@ -142,12 +178,17 @@ export function DocumentView({ root, record, onBack, onRecordUpdated }: Props) {
       setError(null);
       setNotice(null);
 
-      await api.exportDocument(
-        root,
-        record.id,
-        destination,
-        editable ? content : null,
-      );
+      if (kind === 'pdf' && pdfRef.current?.isDirty()) {
+        const bytes = await pdfRef.current.buildBytes();
+        await api.exportDocumentBytes(destination, bytes);
+      } else {
+        await api.exportDocument(
+          root,
+          record.id,
+          destination,
+          editable ? content : null,
+        );
+      }
       setNotice(`Exported to ${destination}.`);
     } catch (cause) {
       setError(describeError(cause));
@@ -183,7 +224,7 @@ export function DocumentView({ root, record, onBack, onRecordUpdated }: Props) {
               {preview ? 'Write' : 'Preview'}
             </button>
           )}
-          {editable && (
+          {canSave && (
             <button
               type="button"
               className="primary"
@@ -240,7 +281,14 @@ export function DocumentView({ root, record, onBack, onRecordUpdated }: Props) {
           </>
         )
       ) : kind === 'pdf' ? (
-        <PdfViewer root={root} record={record} onError={setError} />
+        <PdfViewer
+          ref={pdfRef}
+          root={root}
+          record={record}
+          onError={setError}
+          onDirtyChange={setPdfDirty}
+          onRecordUpdated={onRecordUpdated}
+        />
       ) : kind === 'image' ? (
         <ImagePreview root={root} record={record} onError={setError} />
       ) : (
