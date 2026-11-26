@@ -32,14 +32,15 @@ opening, editing, and exporting documents from the same on-disk library NookBin
 uses. Planned formats are PDF, plain text, and Markdown; PDF scope is view,
 page operations, and annotations/forms rather than text reflow.
 
-NookEdit is at **Phase 3**: the desktop app opens a library folder, imports
+NookEdit is at **Phase 5**: the desktop app opens a library folder, imports
 documents, and opens them for editing. Text and Markdown use CodeMirror (with a
-Markdown preview), PDFs use a pdf.js viewer, and every format can be exported.
+Markdown preview), PDFs use a pdf.js viewer with a thumbnail grid for rotating,
+reordering, duplicating, and deleting pages, and every format can be exported.
 The on-disk format is specified in
 [`docs/library-format.md`](docs/library-format.md). NookBin now reads the same
 library through the native messaging host in `tools/nookedit/host` and falls
-back to IndexedDB when the host is not installed. PDF page operations and
-annotations are next. See [`docs/architecture.md`](docs/architecture.md) for how
+back to IndexedDB when the host is not installed. PDF forms and annotations are
+next. See [`docs/architecture.md`](docs/architecture.md) for how
 the pieces fit together and
 [`docs/spikes/p0/README.md`](docs/spikes/p0/README.md) for the feasibility
 results.

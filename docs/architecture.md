@@ -139,8 +139,8 @@ NookEdit implements that layout in `crates/nooksuite-library/src/library.rs`:
 - `rename` moves the file and updates the record; `remove` deletes the folder
   and the record.
 - `read_text` / `read_bytes` read a record; `read_range` streams a slice for the
-  host; `save_text` replaces a text file atomically and updates its size and
-  `updatedAt`; `export` writes a copy to a chosen destination.
+  host; `save_text` and `save_bytes` replace a file atomically and update its
+  size and `updatedAt`; `export` writes a copy to a chosen destination.
 - `atomic_write` writes through `library.json.tmp` and renames over the index.
 - Ids, name normalization, media-type inference, and timestamp validation
   mirror `packages/core/src/library/`.
@@ -148,14 +148,18 @@ NookEdit implements that layout in `crates/nooksuite-library/src/library.rs`:
 The crate is shared by the desktop app and the native host, so there is one
 implementation of the format. Tauri commands (`open_library`, `import_documents`,
 `rename_document`, `remove_document`, `read_document_text`,
-`read_document_bytes`, `save_document`, `export_document`) wrap those
-operations. The remembered library path lives in `settings.json` in the app
-config directory, so the app reopens the last library on launch.
+`read_document_bytes`, `save_document`, `save_document_bytes`, `export_document`,
+`export_bytes`) wrap those operations. The remembered library path lives in
+`settings.json` in the app config directory, so the app reopens the last library
+on launch.
 
 `read_document_bytes` returns `tauri::ipc::Response`, so large files reach the
 webview as an `ArrayBuffer` instead of a JSON array of numbers.
+`save_document_bytes` and `export_bytes` take the opposite route: the request
+body is the raw file and the library root, document id, or destination travels
+in percent-encoded headers. This keeps PDF saves out of JSON.
 
-#### Opening and editing (Phase 3)
+#### Opening, editing, and page operations (Phases 3 and 5)
 
 The renderer picks a mode from the record's media type and extension:
 
@@ -164,15 +168,24 @@ The renderer picks a mode from the record's media type and extension:
   Rust side writes the file atomically and updates the index. `Ctrl+S` and the
   Save button share that path.
 - PDFs are read as bytes and rendered by pdf.js to a canvas, with page
-  navigation, zoom, fit-width, and fit-page. This is view-only; page operations
-  and annotations are Phase 5.
+  navigation, zoom, fit-width, and fit-page. The Pages view shows a lazy
+  thumbnail grid where pages can be rotated, reordered, duplicated, deleted,
+  and undone. Saving rewrites the PDF with pdf-lib (`copyPages` plus baked-in
+  rotations) and sends the bytes to `save_document_bytes`; exporting writes the
+  same bytes to the chosen destination without changing the library. pdf-lib is
+  loaded on demand, so it is not part of the viewer's initial chunk.
 - Images render from an object URL.
 - Everything else shows metadata and can still be exported.
 
 Export writes the current editor contents for text and Markdown (so unsaved
-edits are included) and copies bytes for PDFs, images, and unknown formats.
-Leaving the editor with unsaved changes asks first. Closing the window is not
-guarded yet.
+edits are included), the edited PDF when page changes are pending, and copies
+bytes for images and unknown formats. Leaving the editor with unsaved changes
+asks first. Closing the window is not guarded yet.
+
+Page rewriting uses pdf-lib's `copyPages`, which does not carry over acroforms
+or document outlines; the common metadata fields are copied explicitly. Page
+operations on a PDF with form fields can therefore drop those fields; forms and
+annotations are the next Phase 5 slice.
 
 The editor, PDF viewer, and Markdown renderer are lazy-loaded; the library
 screen boots without them.

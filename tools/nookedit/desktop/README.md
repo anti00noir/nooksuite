@@ -1,9 +1,9 @@
 # NookEdit Desktop
 
-Native document app built with Tauri 2, React, and TypeScript. Phase 3 opens
-documents from the library: text and Markdown get a CodeMirror editor (with a
-Markdown preview), PDFs get a pdf.js viewer, and every format can be exported.
-PDF page operations and annotations come later.
+Native document app built with Tauri 2, React, and TypeScript. Text and Markdown
+get a CodeMirror editor (with a Markdown preview), PDFs get a pdf.js viewer with
+page operations, and every format can be exported. Forms and annotations come
+later.
 
 The on-disk format is specified in
 [`docs/library-format.md`](../../../docs/library-format.md). The Rust
@@ -27,16 +27,23 @@ fallback used by NookBin.
    - `.txt`, `.md`, and other text-like files open in CodeMirror. Markdown has a
      rendered preview. `Ctrl+S` saves; the record's size and `updatedAt` follow.
    - PDFs open in a canvas viewer with page navigation, zoom, fit-width, and
-     fit-page. Page operations are Phase 5.
+     fit-page. The Pages view shows thumbnails and lets you rotate, reorder,
+     duplicate, and delete pages, with Undo and Revert. Save rewrites the PDF;
+     Export writes the edited copy without changing the library.
    - Images show inline.
    - Other formats show metadata and an export button.
 5. **Export** — save a copy anywhere. Text and Markdown export the current
-   editor contents, even before saving; PDFs and images copy their bytes.
+   editor contents, even before saving; PDFs export pending page edits; images
+   copy their bytes.
 6. **Reopen** — the app opens the saved library on launch and shows what is on
    disk, including documents added by another NookSuite tool.
 
 Unsaved edits are guarded when leaving the editor. Closing the window while
 dirty is not guarded yet.
+
+Page rewriting uses pdf-lib's `copyPages`, so acroforms and document outlines
+are not preserved; the common metadata fields are copied. Forms and annotations
+are the next Phase 5 slice.
 
 ## Prerequisites
 
@@ -78,6 +85,9 @@ The script also sets `NOOKEDIT_HEADLESS_LIBRARY_ROOT` and
 - reads text and raw bytes over IPC and saves through the same command the UI
   uses,
 - imports the PDF fixture and renders page one from the bytes IPC returned,
+- rotates, duplicates, moves, and deletes pages, undoes one change, saves the
+  rewritten PDF through the binary IPC path, and reads it back to confirm the
+  page count, rotations, and record size,
 - writes all results to JSON.
 
 ```bash
@@ -91,14 +101,15 @@ npm run spike:headless -- --debug          # force the debug build
 
 - `../../../crates/nooksuite-library/src/library.rs` — format v1: record
   validation, name normalization, ids, timestamps, atomic writes, and
-  import/rename/remove plus text reads, text saves, exports, and ranged reads.
-  Shared with the native messaging host.
+  import/rename/remove plus text and binary reads, text/binary saves, exports,
+  and ranged reads. Shared with the native messaging host.
 - `../../../crates/nooksuite-library/src/settings.rs` — `settings.json` in the
   app config directory; the host reads the same file.
 - `src-tauri/src/lib.rs` — Tauri commands (`open_library`, `import_documents`,
   `rename_document`, `remove_document`, `read_document_text`,
-  `read_document_bytes`, `save_document`, `export_document`,
-  `default_library_path`, settings, and the headless entry points).
+  `read_document_bytes`, `save_document`, `save_document_bytes`,
+  `export_document`, `export_bytes`, `default_library_path`, settings, and the
+  headless entry points).
 - `src/lib/api.ts` — typed wrappers for those commands.
 - `src/LibraryView.tsx` / `src/DocumentRow.tsx` / `src/SetupView.tsx` — the
   library UI.
@@ -106,12 +117,15 @@ npm run spike:headless -- --debug          # force the debug build
   handling.
 - `src/TextEditor.tsx` — CodeMirror 6; `src/MarkdownPreview.tsx` — rendered
   Markdown.
-- `src/PdfViewer.tsx` — pdf.js canvas viewer; `src/ImagePreview.tsx` — image
-  previews.
+- `src/PdfViewer.tsx` — pdf.js canvas viewer and the thumbnail page editor;
+  `src/lib/pdf-pages.ts` — page-plan reducer and the pdf-lib rewrite;
+  `src/ImagePreview.tsx` — image previews.
 - `src/pdf-benchmark.ts` — the P0 pdf.js benchmark, kept for the headless run.
 
 `read_document_bytes` returns `tauri::ipc::Response`, so pdf.js receives an
-`ArrayBuffer` rather than a JSON number array.
+`ArrayBuffer` rather than a JSON number array. `save_document_bytes` and
+`export_bytes` send the rewritten PDF as a raw request body, with the library
+root, document id, or destination in percent-encoded headers.
 
 The editor, PDF viewer, and Markdown renderer are lazy-loaded, so the library
 screen does not pay for them on launch.
